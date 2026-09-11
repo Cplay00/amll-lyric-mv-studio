@@ -1,0 +1,38 @@
+# 依赖与构建产物
+node_modules/
+dist/
+out/
+frames/
+release/
+*.tsbuildinfo
+
+# GUI / .NET
+gui/bin/
+gui/obj/
+gui/artifacts/
+gui/tools/**/bin/
+gui/tools/**/obj/
+gui/tests/**/bin/
+gui/tests/**/obj/
+.vs/
+*.user
+*.suo
+TestResults/
+
+# 安装器产物与缓存
+installer/cache/
+installer/output/
+installer/staging/
+installer/.tmp/
+installer/.mimosa/
+*.partial
+
+# 本地工具与临时文件
+.mimosa/
+.playwright-cli/
+CONCAT
+*.log
+.DS_Store
+
+# 演示素材为生成物（npm run demo:assets 重建）
+public/demo/

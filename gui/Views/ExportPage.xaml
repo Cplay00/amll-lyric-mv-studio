@@ -1,0 +1,165 @@
+<UserControl
+    x:Class="AmllMvStudio.Views.ExportPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:muxc="using:Microsoft.UI.Xaml.Controls">
+
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="24">
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,16">
+            <TextBlock Text="导出工作台" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Text="配置舞台、歌词、背景与编码参数，并跟踪逐帧渲染任务。"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </StackPanel>
+
+        <Grid Grid.Row="1" ColumnSpacing="20">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="3*" MinWidth="520" /><ColumnDefinition Width="2*" MinWidth="360" /></Grid.ColumnDefinitions>
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="12" Padding="0,0,8,0">
+                    <muxc:Expander Header="项目信息" IsExpanded="True" Style="{StaticResource WorkbenchExpanderStyle}">
+                        <Grid ColumnSpacing="12" RowSpacing="12" Padding="16">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBox Grid.Row="0" Grid.ColumnSpan="2" x:Name="TitleBox" Header="歌曲标题（必填）" PlaceholderText="例如：夜曲" TextChanged="OnConfigurationChanged" />
+                            <TextBox Grid.Row="1" Grid.Column="0" x:Name="ArtistBox" Header="艺术家（可选）" PlaceholderText="演唱者（可留空）" TextChanged="OnConfigurationChanged" />
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="AlbumBox" Header="专辑（可选）" PlaceholderText="专辑名称（可留空）" TextChanged="OnConfigurationChanged" />
+                        </Grid>
+                    </muxc:Expander>
+
+                    <muxc:Expander Header="素材" IsExpanded="True" Style="{StaticResource WorkbenchExpanderStyle}">
+                        <StackPanel Spacing="10" Padding="16">
+                            <Button x:Name="PickAudioButton" HorizontalAlignment="Stretch" Click="OnPickAudio" ToolTipService.ToolTip="选择渲染所需的音频文件（必填素材）">
+                                <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <SymbolIcon Symbol="Audio" /><TextBlock Grid.Column="1" Text="音频文件（必填）" /><TextBlock Grid.Column="2" x:Name="AudioBadge" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                </Grid>
+                            </Button>
+                            <Button x:Name="PickLyricButton" HorizontalAlignment="Stretch" Click="OnPickLyric" ToolTipService.ToolTip="选择逐字或逐行歌词">
+                                <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <SymbolIcon Symbol="Document" /><TextBlock Grid.Column="1" Text="歌词文件（可选）" /><TextBlock Grid.Column="2" x:Name="LyricBadge" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                </Grid>
+                            </Button>
+                            <Button x:Name="PickCoverButton" HorizontalAlignment="Stretch" Click="OnPickCover" ToolTipService.ToolTip="选择用于舞台与背景取色的封面">
+                                <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <SymbolIcon Symbol="Pictures" /><TextBlock Grid.Column="1" Text="专辑封面（可选）" /><TextBlock Grid.Column="2" x:Name="CoverBadge" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                </Grid>
+                            </Button>
+                        </StackPanel>
+                    </muxc:Expander>
+
+                    <muxc:Expander Header="舞台布局" IsExpanded="True" Style="{StaticResource WorkbenchExpanderStyle}">
+                        <Grid ColumnSpacing="12" RowSpacing="12" Padding="16">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <ComboBox Grid.Row="0" Grid.ColumnSpan="2" x:Name="PresetCombo" Header="画布预设与像素尺寸" HorizontalAlignment="Stretch" SelectionChanged="OnConfigurationChanged" />
+                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4"><TextBlock x:Name="FpsLabel" Text="帧率：60 FPS" FontWeight="SemiBold" /><Slider x:Name="FpsSlider" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="导出帧率（FPS）" /></StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4"><TextBlock x:Name="ArtworkScaleLabel" Text="封面缩放：100%" FontWeight="SemiBold" /><Slider x:Name="ArtworkScaleSlider" StepFrequency="0.05" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="封面缩放比例" /></StackPanel>
+                            <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4"><TextBlock x:Name="FlowLabel" Text="背景流速：2.0" FontWeight="SemiBold" /><Slider x:Name="FlowSlider" Maximum="5" StepFrequency="0.1" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="背景流动速度" /></StackPanel>
+                            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4"><TextBlock x:Name="RenderScaleLabel" Text="渲染倍率：1.00×" FontWeight="SemiBold" /><Slider x:Name="RenderScaleSlider" StepFrequency="0.05" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="背景渲染倍率" /></StackPanel>
+                        </Grid>
+                    </muxc:Expander>
+
+                    <muxc:Expander Header="歌词与副歌词" IsExpanded="True" Style="{StaticResource WorkbenchExpanderStyle}">
+                        <Grid ColumnSpacing="12" RowSpacing="12" Padding="16">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <ComboBox Grid.Row="0" Grid.ColumnSpan="2" x:Name="FontFamilyCombo" Header="歌词字体族" PlaceholderText="Microsoft YaHei UI" IsEditable="True" IsTextSearchEnabled="True" TextSubmitted="OnFontFamilySubmitted" SelectionChanged="OnConfigurationChanged" LostFocus="OnFontFamilyLostFocus" ToolTipService.ToolTip="选择已安装字体，或直接输入字体族名称">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="12">
+                                            <TextBlock Text="{Binding}" MinWidth="180" />
+                                            <TextBlock Text="字体预览 Aa 歌词" FontFamily="{Binding}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4"><TextBlock x:Name="FontScaleLabel" Text="字号缩放：100%" FontWeight="SemiBold" /><Slider x:Name="FontScaleSlider" StepFrequency="0.05" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="歌词字号缩放比例" /></StackPanel>
+                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="FontWeightCombo" Header="字体粗细" HorizontalAlignment="Stretch" SelectionChanged="OnConfigurationChanged" />
+                            <ComboBox Grid.Row="2" Grid.Column="0" x:Name="SecondaryModeCombo" Header="副歌词模式" HorizontalAlignment="Stretch" SelectionChanged="OnConfigurationChanged" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="LyricAlignCombo" Header="歌词对齐" HorizontalAlignment="Stretch" SelectionChanged="OnConfigurationChanged" />
+                            <StackPanel Grid.Row="3" Grid.Column="0" Spacing="4"><TextBlock x:Name="LyricOffsetLabel" Text="垂直偏移：0 px" FontWeight="SemiBold" /><Slider x:Name="LyricOffsetSlider" Minimum="-600" Maximum="600" StepFrequency="5" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="歌词垂直偏移（像素）" /></StackPanel>
+                            <StackPanel Grid.Row="3" Grid.Column="1" Spacing="4"><TextBlock x:Name="LyricWidthLabel" Text="歌词区域宽度：54%" FontWeight="SemiBold" /><Slider x:Name="LyricWidthSlider" StepFrequency="1" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="歌词区域宽度（百分比）" /></StackPanel>
+                            <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Spacing="4"><TextBlock x:Name="LyricFadeLabel" Text="上下边缘羽化：8%（0 关闭）" FontWeight="SemiBold" /><Slider x:Name="LyricFadeSlider" Maximum="0.3" StepFrequency="0.01" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="歌词上下边缘羽化（舞台高度百分比）" ToolTipService.ToolTip="歌词滚入/滚出上下边界时以渐隐方式收尾，避免文字被硬裁切；0 为完全关闭" /></StackPanel>
+                        </Grid>
+                    </muxc:Expander>
+
+                    <muxc:Expander Header="背景" Style="{StaticResource WorkbenchExpanderStyle}">
+                        <Grid ColumnSpacing="12" RowSpacing="12" Padding="16">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4"><TextBlock x:Name="BackgroundDimLabel" Text="背景压暗：35%" FontWeight="SemiBold" /><Slider x:Name="BackgroundDimSlider" Maximum="0.9" StepFrequency="0.05" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="背景压暗比例" /></StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4"><TextBlock x:Name="BackgroundSaturationLabel" Text="背景饱和度：120%" FontWeight="SemiBold" /><Slider x:Name="BackgroundSaturationSlider" Maximum="2" StepFrequency="0.05" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="背景饱和度比例" /></StackPanel>
+                            <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Spacing="4"><TextBlock x:Name="BackgroundBlurLabel" Text="背景模糊：24 px" FontWeight="SemiBold" /><Slider x:Name="BackgroundBlurSlider" Maximum="80" StepFrequency="1" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="背景模糊半径（像素）" /></StackPanel>
+                        </Grid>
+                    </muxc:Expander>
+
+                    <muxc:Expander Header="显示选项" Style="{StaticResource WorkbenchExpanderStyle}">
+                        <Grid Padding="16" ColumnSpacing="20">
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <StackPanel Grid.Row="0" Grid.Column="0" Spacing="10">
+                                <ToggleSwitch x:Name="ShowSongInfoToggle" Header="显示歌曲信息" Toggled="OnConfigurationChanged" ToolTipService.ToolTip="歌曲标题始终显示；艺术家与专辑可单独开关" />
+                                <ToggleSwitch x:Name="ShowArtworkToggle" Header="显示专辑封面" Toggled="OnConfigurationChanged" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="10">
+                                <ToggleSwitch x:Name="ShowControlsToggle" Header="显示播放器控制" OffContent="关闭（默认）" OnContent="开启" Toggled="OnConfigurationChanged" ToolTipService.ToolTip="导出画面通常不显示播放控件" />
+                                <ComboBox x:Name="BrowserGpuCombo" Header="浏览器 GPU" HorizontalAlignment="Stretch" SelectionChanged="OnConfigurationChanged" ToolTipService.ToolTip="自动、强制开启或关闭浏览器 GPU" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="0" Spacing="10">
+                                <ToggleSwitch x:Name="ShowArtistToggle" Header="显示艺术家" OnContent="在歌曲信息中展示" OffContent="隐藏" Toggled="OnConfigurationChanged" />
+                                <ToggleSwitch x:Name="ShowAlbumToggle" Header="显示专辑" OnContent="在歌曲信息中展示" OffContent="隐藏" Toggled="OnConfigurationChanged" />
+                            </StackPanel>
+                        </Grid>
+                    </muxc:Expander>
+
+                    <muxc:Expander Header="导出与编码" IsExpanded="True" Style="{StaticResource WorkbenchExpanderStyle}">
+                        <Grid ColumnSpacing="12" RowSpacing="12" Padding="16">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Grid.ColumnSpan="2" ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBox x:Name="OutputBox" Header="输出文件（MP4）" PlaceholderText="留空时由渲染器自动命名" AutomationProperties.AutomationId="OutputPathBox" />
+                                <Button Grid.Column="1" VerticalAlignment="Bottom" Click="OnPickOutput" ToolTipService.ToolTip="选择 MP4 保存位置"><SymbolIcon Symbol="OpenFile" /></Button>
+                            </Grid>
+                            <ComboBox Grid.Row="1" Grid.Column="0" x:Name="EncoderCombo" Header="视频编码器" HorizontalAlignment="Stretch" SelectionChanged="OnConfigurationChanged" ToolTipService.ToolTip="仅可选择当前环境探测到的编码器" />
+                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="EncoderPresetCombo" Header="编码速度预设" HorizontalAlignment="Stretch" SelectionChanged="OnConfigurationChanged" />
+                            <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4"><TextBlock x:Name="QualityLabel" Text="质量：16（越小越清晰）" FontWeight="SemiBold" /><Slider x:Name="QualitySlider" StepFrequency="1" ValueChanged="OnConfigurationRangeChanged" AutomationProperties.Name="视频质量值" /></StackPanel>
+                            <NumberBox Grid.Row="2" Grid.Column="1" x:Name="TailBox" Header="片尾留白（毫秒）" Maximum="10000" SpinButtonPlacementMode="Compact" ValueChanged="OnNumberConfigurationChanged" />
+                            <ComboBox Grid.Row="3" Grid.Column="0" x:Name="AudioCodecCombo" Header="音频编码" HorizontalAlignment="Stretch" SelectionChanged="OnConfigurationChanged" />
+                            <ComboBox Grid.Row="3" Grid.Column="1" x:Name="AudioBitrateCombo" Header="音频码率" HorizontalAlignment="Stretch" SelectionChanged="OnConfigurationChanged" />
+                        </Grid>
+                    </muxc:Expander>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Border Grid.Column="1" Style="{StaticResource WorkbenchCardStyle}">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Spacing="6">
+                        <TextBlock Text="任务状态" Style="{StaticResource SubtitleTextBlockStyle}" />
+                        <TextBlock x:Name="StatusText" Text="就绪" FontSize="18" FontWeight="SemiBold" AutomationProperties.AutomationId="RenderStatus" />
+                        <TextBlock x:Name="StageText" Text="等待开始" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <ProgressBar x:Name="Progress" Maximum="100" AutomationProperties.AutomationId="RenderProgress" />
+                        <TextBlock x:Name="ProgressDetailText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <muxc:InfoBar Grid.Row="1" x:Name="TaskInfoBar" Margin="0,16,0,0" IsOpen="False" IsClosable="True" />
+                    <TextBlock Grid.Row="2" Text="任务日志" FontWeight="SemiBold" Margin="0,16,0,8" />
+                    <Border Grid.Row="3" Background="{ThemeResource ControlFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                        <ScrollViewer x:Name="LogScroll" Padding="12" VerticalScrollBarVisibility="Auto">
+                            <TextBlock x:Name="LogText" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </ScrollViewer>
+                    </Border>
+                    <StackPanel Grid.Row="4" Spacing="8" Margin="0,16,0,0">
+                        <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" x:Name="StartButton" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}" Click="OnStart" AutomationProperties.AutomationId="StartRender"><StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Play" /><TextBlock Text="开始渲染" /></StackPanel></Button>
+                            <Button Grid.Column="1" x:Name="CancelButton" HorizontalAlignment="Stretch" Click="OnCancel" IsEnabled="False" AutomationProperties.AutomationId="CancelRender"><StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Cancel" /><TextBlock Text="取消任务" /></StackPanel></Button>
+                        </Grid>
+                        <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" x:Name="OpenOutputButton" HorizontalAlignment="Stretch" Click="OnOpenOutput" IsEnabled="False"><StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Folder" /><TextBlock Text="定位输出" /></StackPanel></Button>
+                            <Button Grid.Column="1" x:Name="PlayResultButton" HorizontalAlignment="Stretch" Click="OnPlayResult" IsEnabled="False"><StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Play" /><TextBlock Text="播放成片" /></StackPanel></Button>
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -1,0 +1,108 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>AmllMvStudio</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <!-- 非打包（unpackaged）模式：直接双击 exe 即可运行，无需 MSIX 安装 -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <!-- 自动引入 System / System.IO / System.Linq / System.Threading.Tasks 等常用命名空间 -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>AmllMvStudio</AssemblyName>
+    <ApplicationIcon />
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\dist\**\*" Link="runtime\content\dist\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\scripts\**\*" Link="runtime\content\scripts\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\package.json;..\package-lock.json" Link="runtime\content\%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\index.html" Link="runtime\content\index.html"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\src\**\*" Link="runtime\content\src\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\public\**\*" Link="runtime\content\public\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\vite.config.ts;..\tsconfig.json" Link="runtime\content\%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\playwright-core\index.js;..\node_modules\playwright-core\index.mjs;..\node_modules\playwright-core\package.json;..\node_modules\playwright-core\browsers.json"
+          Link="runtime\content\node_modules\playwright-core\%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\playwright-core\lib\server\**\*"
+          Link="runtime\content\node_modules\playwright-core\lib\server\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\playwright-core\lib\*.js;..\node_modules\playwright-core\lib\*.wasm;..\node_modules\playwright-core\lib\*.LICENSE;..\node_modules\playwright-core\lib\xdg-open"
+          Link="runtime\content\node_modules\playwright-core\lib\%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\vite\**\*"
+          Link="runtime\content\node_modules\vite\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\installer\staging\runtime\ffmpeg\ffmpeg.exe"
+          Link="runtime\ffmpeg\ffmpeg.exe"
+          CopyToPublishDirectory="PreserveNewest"
+          Condition="Exists('..\installer\staging\runtime\ffmpeg\ffmpeg.exe')" />
+    <None Include="..\node_modules\rollup\**\*"
+          Link="runtime\content\node_modules\rollup\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\@rollup\**\*"
+          Link="runtime\content\node_modules\@rollup\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\esbuild\**\*"
+          Link="runtime\content\node_modules\esbuild\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\@esbuild\**\*"
+          Link="runtime\content\node_modules\@esbuild\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\postcss\**\*"
+          Link="runtime\content\node_modules\postcss\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\picocolors\**\*"
+          Link="runtime\content\node_modules\picocolors\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\resolve\**\*"
+          Link="runtime\content\node_modules\resolve\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\node_modules\fsevents\**\*"
+          Link="runtime\content\node_modules\fsevents\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(ProgramFiles)\nodejs\node.exe"
+          Link="runtime\node\node.exe"
+          CopyToPublishDirectory="PreserveNewest"
+          Condition="Exists('$(ProgramFiles)\nodejs\node.exe')" />
+  </ItemGroup>
+
+  <Target Name="CopyApplicationPriToPublish" AfterTargets="Publish">
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri"
+          DestinationFolder="$(PublishDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(TargetDir)$(AssemblyName).pri')" />
+  </Target>
+
+  <!-- tools/ 与 tests/ 下是独立辅助项目，不参与主程序编译 -->
+  <ItemGroup>
+    <Compile Remove="tools\**;tests\**" />
+    <None Remove="tools\**;tests\**" />
+    <Content Remove="tools\**;tests\**" />
+    <EmbeddedResource Remove="tools\**;tests\**" />
+    <Page Remove="tools\**;tests\**" />
+    <ApplicationDefinition Remove="tools\**;tests\**" />
+  </ItemGroup>
+
+</Project>

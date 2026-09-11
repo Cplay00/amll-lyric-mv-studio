@@ -1,0 +1,726 @@
+:root {
+  --bg: #08080c;
+  --panel: #121218;
+  --panel-2: #181822;
+  --panel-hover: #222230;
+  --line: #262636;
+  --line-strong: #38384e;
+  --text: #f2f2f7;
+  --text-dim: #9898a6;
+  --accent: #fa2d48;
+  --accent-soft: rgba(250, 45, 72, 0.16);
+  --accent-hover: #ff3b56;
+  --lyric-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "HarmonyOS Sans SC",
+    "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--lyric-font);
+  font-size: 14px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------- 整体工作台布局 ---------- */
+
+.app {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
+}
+
+.app--bare {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: radial-gradient(1200px 700px at 50% 0%, #151520 0%, #060609 80%);
+}
+
+.viewport {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 16px;
+}
+
+/* 自动渲染模式/bare模式：完全移除外边距和padding，绝对1:1充满舞台容器 */
+.app--bare .viewport {
+  padding: 0;
+  margin: 0;
+}
+
+/* ---------- 舞台 Frame 与 Stage ---------- */
+
+.stage-frame {
+  flex: none;
+  position: relative;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+  background: #000;
+}
+
+.app--bare .stage-frame {
+  box-shadow: none;
+}
+
+.stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  overflow: hidden;
+  background: #05050a;
+  font-family: var(--lyric-font);
+  isolation: isolate;
+}
+
+/* 背景渲染层与暗化/模糊覆盖层 */
+.stage-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.stage-bg canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.stage-bg-dimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: rgba(0, 0, 0, var(--stage-bg-dim, 0.15));
+  backdrop-filter: blur(var(--stage-bg-blur, 0px)) saturate(var(--stage-bg-saturation, 100%));
+  -webkit-backdrop-filter: blur(var(--stage-bg-blur, 0px)) saturate(var(--stage-bg-saturation, 100%));
+}
+
+.stage-audio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  bottom: 0;
+  left: 0;
+}
+
+/* ---------- Apple Music 舞台内容布局 ---------- */
+
+.stage-content {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  pointer-events: auto;
+}
+
+/* 横屏模式 (Landscape) */
+.stage-content--landscape {
+  flex-direction: row;
+  align-items: center;
+  padding: 5% 5.5% 5% 6%;
+  gap: 4.5%;
+}
+
+.stage-content--landscape .stage-left {
+  flex: 0 0 38%;
+  max-width: 44%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  z-index: 6;
+}
+
+.stage-content--landscape .stage-right {
+  flex: 1 1 0;
+  height: 100%;
+  min-width: 0;
+  position: relative;
+  z-index: 6;
+}
+
+/* 竖屏模式 (Portrait) */
+.stage-content--portrait {
+  flex-direction: column;
+  align-items: center;
+  padding: 5.5% 6% 4.5%;
+  gap: 3.5%;
+}
+
+.stage-content--portrait .stage-left {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  z-index: 6;
+}
+
+.stage-content--portrait .stage-artwork-wrapper {
+  max-width: 4.6em;
+  width: 100%;
+}
+
+.stage-content--portrait .stage-info {
+  align-items: center;
+  text-align: center;
+  margin-top: 0.18em;
+}
+
+.stage-content--portrait .stage-right {
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 0;
+  position: relative;
+  z-index: 6;
+}
+
+/* 方形模式 (Square) */
+.stage-content--square {
+  flex-direction: column;
+  align-items: center;
+  padding: 5% 6% 4%;
+  gap: 3%;
+}
+
+.stage-content--square .stage-left {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.28em;
+  z-index: 6;
+}
+
+.stage-content--square .stage-artwork-wrapper {
+  width: 1.6em;
+  min-width: 1.6em;
+}
+
+.stage-content--square .stage-info {
+  align-items: flex-start;
+  text-align: left;
+  flex: 1;
+}
+
+.stage-content--square .stage-right {
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 0;
+  position: relative;
+  z-index: 6;
+}
+
+/* ---------- 专辑封面与静态信息 ----------
+   尺寸一律使用 em：舞台根节点的 font-size 始终按舞台宽度等比计算，
+   视口单位 vw/vh 只在离线渲染时恰好成立，缩放预览中会导致封面/文字异常缩放。 */
+
+.stage-artwork-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 5.5em;
+  aspect-ratio: 1 / 1;
+  border-radius: 0.3em;
+  box-shadow: 0 20px 50px -6px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  background: #14141d;
+  flex-shrink: 0;
+  transform: scale(var(--artwork-scale, 1));
+  transform-origin: center center;
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.stage-artwork-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.stage-info {
+  margin-top: 0.3em;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.08em;
+}
+
+.stage-info-title {
+  font-size: 0.46em;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: #ffffff;
+  line-height: 1.22;
+  margin: 0;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+  word-break: break-word;
+}
+
+.stage-info-artist {
+  font-size: 0.27em;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.3;
+  margin: 0;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.stage-info-album {
+  font-size: 0.21em;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.52);
+  line-height: 1.3;
+  margin: 0;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+/* ---------- 歌词挂载容器 ---------- */
+
+/* 歌词视口边缘羽化：让滚入/滚出上下边界的歌词行以高斯式渐隐收尾，
+   而不是被硬裁切。--lyric-fade 由舞台根节点按舞台高度比例注入（0 时禁用）。 */
+.stage-lyrics {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--lyric-fade, 0px),
+    black calc(100% - var(--lyric-fade, 0px)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--lyric-fade, 0px),
+    black calc(100% - var(--lyric-fade, 0px)),
+    transparent 100%
+  );
+}
+
+.stage-lyrics--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* 歌词占位提示 */
+.stage-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  color: #cfcfda;
+  pointer-events: none;
+}
+
+.stage-placeholder-title {
+  font-size: 0.58em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.stage-placeholder-sub {
+  font-size: 0.26em;
+  color: #8b8b9a;
+}
+
+/* AMLL Lyric Player 定制与融合 */
+.amll-lyric-player {
+  width: 100%;
+  height: 100%;
+  font-family: inherit;
+  text-shadow: 0 0.08em 0.5em rgba(0, 0, 0, 0.35);
+}
+
+/* 隐藏内置底栏歌曲信息，因为我们已经在左侧专门呈现优雅的 Apple Music 静态信息区 */
+.song-meta {
+  display: none !important;
+}
+
+/* ---------- 传输控制栏 ---------- */
+
+.transport {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px 16px;
+  border-top: 1px solid var(--line);
+  background: rgba(12, 12, 18, 0.92);
+  backdrop-filter: blur(20px);
+}
+
+.transport-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.transport-btn:hover {
+  background: var(--panel-hover);
+  border-color: var(--line-strong);
+}
+
+.transport-btn--primary {
+  min-width: 58px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.transport-btn--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.transport-btn--recording {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: #ff8b9c;
+}
+
+.transport-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  min-width: 96px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.transport-seek {
+  flex: 1;
+  min-width: 140px;
+}
+
+/* ---------- 现代化控制面板 ---------- */
+
+.panel {
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  padding: 20px 18px 48px;
+}
+
+.panel-header {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 18px;
+}
+
+.panel-header h1 {
+  font-size: 17px;
+  margin: 0 0 6px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.panel-sub {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 分组控件卡片 */
+.panel-group {
+  border: 1px solid var(--line);
+  background: rgba(22, 22, 32, 0.45);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.panel-group-title {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin: 0 0 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.file-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px dashed #3a3a4e;
+  border-radius: 9px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.file-btn:hover {
+  border-color: var(--accent);
+  background: var(--panel-hover);
+}
+
+.file-btn-label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.file-btn-value {
+  font-size: 11px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+.track-info {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #0f0f16;
+  border: 1px solid var(--line);
+}
+
+.track-info-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.track-info-sub {
+  color: var(--text-dim);
+  font-size: 11px;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mini-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.mini-btn:hover {
+  color: var(--text);
+  border-color: #4a4a5c;
+  background: var(--panel-hover);
+}
+
+.alert {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: rgba(250, 45, 72, 0.1);
+  border: 1px solid rgba(250, 45, 72, 0.4);
+  color: #ff9db0;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.field:last-child {
+  margin-bottom: 0;
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: #c9c9d6;
+}
+
+.field-label b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.field-label em {
+  display: block;
+  font-style: normal;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  margin-top: 2px;
+}
+
+.field select,
+.field input[type="text"],
+.field input[type="number"] {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12.5px;
+  transition: border-color 0.15s ease;
+}
+
+.field select:focus,
+.field input[type="text"]:focus,
+.field input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.toggles-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #d0d0dc;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-item input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  margin: 0;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.55;
+  margin: 6px 0 0;
+}
+
+.code-block {
+  background: #0b0b10;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-x: auto;
+  color: #b9c7d6;
+  font-family: "Cascadia Mono", "Consolas", "SF Mono", monospace;
+  margin: 8px 0;
+  user-select: all;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  max-width: 620px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(22, 22, 32, 0.96);
+  border: 1px solid var(--line);
+  color: #e2e2ec;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  z-index: 50;
+}
+
+/* 窄视口适配：仅供带控制面板的完整工作台使用。
+   预览（app--bare）无论多窄都必须保持整屏工作区布局，
+   否则窗口缩小后舞台会因 grid 行高 auto 而无法铺满窗口。 */
+@media (max-width: 960px) {
+  .app:not(.app--bare) {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .app:not(.app--bare) .panel {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    max-height: 48vh;
+  }
+}

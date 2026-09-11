@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\Services\AppState.cs" Link="Services\AppState.cs" />
+    <Compile Include="..\..\Services\LocalAssetServer.cs" Link="Services\LocalAssetServer.cs" />
+    <Compile Include="..\..\Services\PreviewScripts.cs" Link="Services\PreviewScripts.cs" />
+    <Compile Include="..\..\Services\RenderContracts.cs" Link="Services\RenderContracts.cs" />
+    <Compile Include="..\..\Services\RenderRunner.cs" Link="Services\RenderRunner.cs" />
+    <Compile Include="..\..\Services\RuntimePaths.cs" Link="Services\RuntimePaths.cs" />
+    <Compile Include="..\..\Services\StagePresets.cs" Link="Services\StagePresets.cs" />
+    <Compile Include="..\..\Services\SystemFontCatalog.cs" Link="Services\SystemFontCatalog.cs" />
+  </ItemGroup>
+</Project>

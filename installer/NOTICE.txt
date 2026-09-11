@@ -1,0 +1,24 @@
+AMLL MV Studio distribution notice
+
+This program and the included AMLL rendering components are free software,
+distributed under GNU Affero General Public License version 3 only
+(AGPL-3.0-only). This is not a closed-source or unrestricted proprietary
+redistribution. You may redistribute and modify it only under that license.
+
+There is NO WARRANTY, to the extent permitted by applicable law. See
+LICENSE.txt for the complete terms.
+
+IMPORTANT FOR DISTRIBUTORS: Distribution of this installer must be accompanied
+by the complete machine-readable Corresponding Source, or by an AGPL-compliant
+source offer/method described in AGPL section 6. Publish the Corresponding
+Source alongside the installer whenever possible.
+
+The package also contains separate third-party programs and libraries under
+their own terms, including Node.js (MIT), FFmpeg with libx264 (GPLv3),
+Playwright (Apache-2.0), Chromium/Chrome for Testing (BSD-style and third-party
+licenses), Microsoft Windows App SDK, and Microsoft WebView2 components.
+See THIRD-PARTY-NOTICES.md and the installed licenses directory.
+
+Application settings, WebView2 profile data, and logs are stored under the
+current user's local application-data folders, separately from the read-only
+program installation directory. Rendered output remains where the user selects.
