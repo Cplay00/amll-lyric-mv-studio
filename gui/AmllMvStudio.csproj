@@ -27,6 +27,7 @@
     <FileDescription>AMLL Lyric MV Studio</FileDescription>
     <Description>Create lyric music videos with Apple Music Like Lyrics visuals.</Description>
     <Authors>Cplay00</Authors>
+    <Company>Cplay00</Company>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 

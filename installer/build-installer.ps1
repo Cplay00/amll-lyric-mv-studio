@@ -7,7 +7,14 @@ param(
     [switch]$SkipVerify,
     [switch]$Offline,
     # Lite omits Chromium and renders through an installed Edge/Chrome browser.
-    [switch]$Lite
+    [switch]$Lite,
+    # Optional Authenticode signing of the produced installer: provide either a
+    # certificate thumbprint (user/machine store) or a PFX path whose password
+    # is read from the AMLL_SETUP_PFX_PASSWORD environment variable (never a
+    # command-line argument). Without either, the installer stays unsigned.
+    [string]$CertificateThumbprint = '',
+    [string]$PfxPath = '',
+    [string]$TimestampServer = 'http://timestamp.digicert.com'
 )
 
 Set-StrictMode -Version Latest
@@ -230,6 +237,22 @@ function Find-Iscc {
     $found = @($candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
     if ($found.Count -gt 0) { return $found[0] }
     $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if ($command) { return $command.Source }
+    return $null
+}
+
+function Find-SignTool {
+    if (${env:ProgramFiles(x86)}) {
+        $kitsRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+        if (Test-Path -LiteralPath $kitsRoot) {
+            $found = @(Get-ChildItem -LiteralPath $kitsRoot -Directory |
+                Sort-Object Name -Descending |
+                ForEach-Object { Join-Path $_.FullName 'x64\signtool.exe' } |
+                Where-Object { Test-Path -LiteralPath $_ })
+            if ($found.Count -gt 0) { return $found[0] }
+        }
+    }
+    $command = Get-Command signtool.exe -ErrorAction SilentlyContinue
     if ($command) { return $command.Source }
     return $null
 }
@@ -630,6 +653,21 @@ if (-not $SkipInstaller) {
     if (-not (Test-Path -LiteralPath $setupPath)) { throw "ISCC succeeded, but installer is missing: $setupPath" }
     $setupItem = Get-Item -LiteralPath $setupPath
     if ($setupItem.Length -lt 1MB) { throw "Installer is unexpectedly small: $($setupItem.Length) bytes" }
+    if ($CertificateThumbprint -or $PfxPath) {
+        Write-Step 'Signing installer (Authenticode)'
+        $signtool = Find-SignTool
+        if (-not $signtool) { throw 'signtool.exe was not found; install the Windows SDK or build unsigned.' }
+        $signArgs = @('sign', '/fd', 'SHA256', '/tr', $TimestampServer, '/td', 'SHA256')
+        if ($CertificateThumbprint) {
+            $signArgs += @('/sha1', $CertificateThumbprint)
+        } else {
+            $pfxPassword = $env:AMLL_SETUP_PFX_PASSWORD
+            if (-not $pfxPassword) { throw 'PFX signing requires the AMLL_SETUP_PFX_PASSWORD environment variable.' }
+            $signArgs += @('/f', $PfxPath, '/p', $pfxPassword)
+        }
+        & $signtool @signArgs $setupPath
+        if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE" }
+    }
     $setupSignature = Get-AuthenticodeSignature -LiteralPath $setupPath
     $setupMetadata = [ordered]@{
         file = $setupItem.Name
@@ -638,6 +676,7 @@ if (-not $SkipInstaller) {
         sizeBytes = $setupItem.Length
         sha256 = Get-Sha256 $setupPath
         signatureStatus = [string]$setupSignature.Status
+        signatureStatusMessage = [string]$setupSignature.StatusMessage
         signer = if ($setupSignature.SignerCertificate) { $setupSignature.SignerCertificate.Subject } else { $null }
     }
     $setupMetadata | ConvertTo-Json | Set-Content -LiteralPath "$setupPath.json" -Encoding UTF8

@@ -10,7 +10,7 @@
 #else
   #define MyAppSetupName "AMLL-Lyric-MV-Studio-" + MyAppVersion + "-x64-Setup"
 #endif
-#define MyAppPublisher "Cplay00 and AMLL Lyric MV Studio contributors"
+#define MyAppPublisher "Cplay00"
 #define MyAppExeName "AmllMvStudio.exe"
 #define MyAppId "{{9A522AA8-C6AB-4CF0-B743-62F1BE0D24B1}"
 

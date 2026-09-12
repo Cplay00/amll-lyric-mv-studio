@@ -36,6 +36,10 @@ Useful switches:
 - `-SkipVerify` or `-SkipInstaller` supports focused build troubleshooting.
 - `-InstallTooling` explicitly authorizes installing Inno Setup 6 when ISCC is
   missing. Without this switch the script never installs tools silently.
+- `-CertificateThumbprint` / `-PfxPath` optionally Authenticode-sign the
+  produced installer (SHA-256 digest, RFC 3161 timestamp via
+  `-TimestampServer`). PFX passwords are read from `AMLL_SETUP_PFX_PASSWORD`
+  and never accepted as a command-line argument. Omit both to build unsigned.
 
 `Invoke-WebRequest`, npm, NuGet, and Playwright use normal proxy settings.
 Set `HTTP_PROXY` and `HTTPS_PROXY` before building where required. Node and
@@ -107,6 +111,18 @@ once rather than repeating large source archives per variant. It refuses to
 finalize without an authenticated FFmpeg 8.1.2 upstream source and the complete
 FFmpeg source-offer bundle (`gyan-build-source`), which pins the distributed
 binary archive and every resolvable upstream library source hash-by-hash.
+
+## Code signing
+
+When a certificate is supplied, each installer is signed after compilation with
+signtool (`/fd SHA256`, RFC 3161 timestamp `/tr`). The current release set is
+signed with a self-signed code-signing certificate (`CN=Cplay00`, SHA-1
+thumbprint `B767B438E13579C59C2D5B3683DE2D51CD0D7080`, expires 2031-09-13).
+Because the chain is self-signed, Windows SmartScreen still shows a first-run
+warning and `Get-AuthenticodeSignature` reports an untrusted-root status; the
+signature still proves file integrity and names the publisher. Replacing it
+with a CA-issued certificate later only changes the thumbprint passed to the
+build.
 
 ## Distribution obligations
 
