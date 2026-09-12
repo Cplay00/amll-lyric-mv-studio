@@ -1,12 +1,13 @@
 {
-  "name": "amll-mv-workbench",
+  "name": "amll-lyric-mv-studio",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "Apple Music 风格逐字歌词 MV 制作工作台（基于 AMLL / applemusic-like-lyrics）",
+  "description": "AMLL Lyric MV Studio — Apple Music 风格逐字歌词 MV 制作与导出工具",
+  "author": "Cplay00",
   "license": "AGPL-3.0-only",
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
     "dev": "vite",
@@ -34,8 +35,8 @@
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.7.0",
-    "playwright-core": "^1.63.0",
+    "playwright-core": "1.63.0",
     "typescript": "^5.9.3",
-    "vite": "^5.4.21"
+    "vite": "7.3.6"
   }
 }

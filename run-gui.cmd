@@ -1,5 +1,5 @@
 @echo off
-REM AMLL 歌词 MV 工作台 —— 一键构建并启动 WinUI 3 图形界面
+REM AMLL Lyric MV Studio - build and launch the WinUI 3 application
 REM 用法：
 REM   run-gui.cmd                      仅启动
 REM   run-gui.cmd --audio 歌曲.flac    启动并预载素材
@@ -31,7 +31,7 @@ if not exist "%GUI_EXE%" (
     dotnet build gui\AmllMvStudio.csproj -c Release -v q || goto :fail
 )
 
-echo [3/3] 启动 AMLL 歌词 MV 工作台...
+echo [3/3] 启动 AMLL Lyric MV Studio...
 "%GUI_EXE%" %*
 goto :eof
 

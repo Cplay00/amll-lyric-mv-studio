@@ -31,15 +31,18 @@ $NodeSha256 = 'EDACA9BD58EC8E92037DAC4E877D52F6B8F430B81C18B57E264B4E2FB111CD56'
 $WebView2Url = 'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/474c9f1d-0fd5-49da-b3b0-df536d328170/MicrosoftEdgeWebview2Setup.exe'
 $WebView2Sha256 = '17DEBF797A6C737959BC588236E897936FFAC1AF5F7E515E674AB32F9EDFE719'
 $FfmpegVersion = '8.1.2'
-$FfmpegArchive = "ffmpeg-$FfmpegVersion-essentials_build.zip"
-$FfmpegUrl = "https://www.gyan.dev/ffmpeg/builds/packages/$FfmpegArchive"
-$FfmpegSha256 = 'DB580001CAA24AC104C8CB856CD113A87B0A443F7BDF47D8C12B1D740584A2EC'
+# Self-built minimal static FFmpeg; produced by installer/cache/amll-ffmpeg-build-source/build.sh.
+$FfmpegArchive = 'ffmpeg-8.1.2-amll-minimal-gpl.zip'
+$FfmpegSha256 = '03DC06C3C02CE318EDAE209D4FD8EE7603AFB554BFE89B60245540A868704C88'
+$FfmpegSourceBundleName = 'amll-ffmpeg-build-source'
 $ChromiumRevision = '1243'
 $ChromiumVersion = '153.0.8010.12'
 $ChromiumCacheArchive = "playwright-chromium-$ChromiumRevision-win64.zip"
 $InnoVersion = '6.7.3'
 $InnoUrl = 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe'
 $InnoSha256 = '9C73C3BAE7ED48D44112A0F48E66742C00090BDB5BEF71D9D3C056C66E97B732'
+$PixiColordLicenseUrl = 'https://raw.githubusercontent.com/omgovich/colord/5344fbf77b736f81cd33c21050021bc09bc9dd1d/LICENSE.md'
+$PixiColordLicenseSha256 = '7613D4594EE8B6163926AF3435DAE61C9E3D5A27CD137BD76A543BA40002D8FC'
 
 function Write-Step([string]$Message) {
     Write-Host "`n==> $Message" -ForegroundColor Cyan
@@ -53,6 +56,19 @@ function Assert-Command([string]$Name) {
 
 function Get-Sha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()
+}
+
+# npm package tarballs never contain dot-named entries: anything dot-named
+# under node_modules is foreign tooling state (for example security-scan hook
+# caches written while verification tools run) and must neither ship in the
+# installer nor break the strict manifest/verification equality checks.
+function Remove-ForeignNodeModulesState {
+    $nodeModules = Join-Path $StagingRoot 'runtime\content\node_modules'
+    if (-not (Test-Path -LiteralPath $nodeModules)) { return }
+    Get-ChildItem -LiteralPath $nodeModules -Recurse -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name.StartsWith('.') } |
+        Sort-Object { $_.FullName.Length } -Descending |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 function Invoke-Download {
@@ -117,6 +133,63 @@ function Copy-NpmPackage([string]$Name) {
     $source = Join-Path (Join-Path $ProjectRoot 'node_modules') $Name
     $destination = Join-Path (Join-Path $ContentRoot 'node_modules') $Name
     Copy-Tree $source $destination
+}
+
+function Get-NpmPackagePath([string]$Root, [string]$Name) {
+    $path = Join-Path $Root 'node_modules'
+    foreach ($part in $Name.Split('/')) { $path = Join-Path $path $part }
+    return $path
+}
+
+function Get-NpmLegalFile([string]$PackageRoot) {
+    $legal = @(Get-ChildItem -LiteralPath $PackageRoot -File | Where-Object {
+        $_.Name -match '^(LICENSE|LICENCE|COPYING|NOTICE)([-.].*)?$'
+    } | Sort-Object Name)
+    if ($legal.Count -eq 0) { return $null }
+    return $legal[0].FullName
+}
+
+function Get-ProductionNpmPackages {
+    $lockPath = Join-Path $ProjectRoot 'package-lock.json'
+    $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+    if (-not $nodeCommand) { throw 'node.exe is required to read the package-lock production closure.' }
+    $resolver = @'
+const lock = require(process.argv[1]);
+const rows = Object.entries(lock.packages)
+  .filter(([path, entry]) => path.startsWith('node_modules/') && entry.dev !== true)
+  .map(([path, entry]) => ({
+    name: path.slice(13),
+    version: entry.version,
+    license: entry.license || null,
+    source: entry.resolved || null
+  }))
+  .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+for (const row of rows) {
+  if (!row.version) throw new Error(`Package ${row.name} has no locked version`);
+}
+process.stdout.write(JSON.stringify(rows));
+'@
+    $json = & $nodeCommand.Source -e $resolver $lockPath
+    if ($LASTEXITCODE -ne 0) { throw "Production npm closure resolution failed with exit code $LASTEXITCODE" }
+    return @($json | ConvertFrom-Json)
+}
+
+function Get-LockedNpmPackages([string[]]$Names) {
+    $lockPath = Join-Path $ProjectRoot 'package-lock.json'
+    $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+    if (-not $nodeCommand) { throw 'node.exe is required to read locked npm package metadata.' }
+    $resolver = @'
+const lock = require(process.argv[1]);
+const rows = process.argv.slice(2).map(name => {
+  const entry = lock.packages[`node_modules/${name}`];
+  if (!entry || !entry.version) throw new Error(`Package ${name} is absent from package-lock.json`);
+  return { name, version: entry.version, license: entry.license || null, source: entry.resolved || null };
+}).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+process.stdout.write(JSON.stringify(rows));
+'@
+    $json = & $nodeCommand.Source -e $resolver $lockPath @Names
+    if ($LASTEXITCODE -ne 0) { throw "Locked npm metadata resolution failed with exit code $LASTEXITCODE" }
+    return @($json | ConvertFrom-Json)
 }
 
 function Get-RequiredNpmPackages([string[]]$Roots) {
@@ -232,12 +305,30 @@ Remove-Item -LiteralPath $publishDir -Recurse -Force -ErrorAction SilentlyContin
     }
     if (-not $publishSucceeded) { throw "dotnet publish failed after 3 attempts" }
 
+Write-Step 'Publishing immutable package verification tools'
+$verificationTools = [ordered]@{
+    guiSmoke = Join-Path $ProjectRoot 'gui\tools\GuiSmokeTest\GuiSmokeTest.csproj'
+    outputAction = Join-Path $ProjectRoot 'gui\tools\OutputActionTest\OutputActionTest.csproj'
+}
+$verificationPublishRoot = Join-Path $TempRoot 'verification-tools'
+Remove-Item -LiteralPath $verificationPublishRoot -Recurse -Force -ErrorAction SilentlyContinue
+foreach ($tool in $verificationTools.GetEnumerator()) {
+    & $dotnet publish $tool.Value -c Release -r win-x64 --self-contained true -o $verificationPublishRoot --nologo
+    if ($LASTEXITCODE -ne 0) { throw "Verification tool publish failed: $($tool.Value)" }
+}
+
 Write-Step 'Downloading and verifying pinned runtimes'
 $nodeZip = Join-Path $CacheRoot $NodeArchive
 $ffmpegZip = Join-Path $CacheRoot $FfmpegArchive
 $webViewInstaller = Join-Path $CacheRoot 'MicrosoftEdgeWebview2Setup.exe'
 Invoke-Download -Uri $NodeUrl -Destination $nodeZip -Sha256 $NodeSha256
-Invoke-Download -Uri $FfmpegUrl -Destination $ffmpegZip -Sha256 $FfmpegSha256
+if (-not (Test-Path -LiteralPath $ffmpegZip -PathType Leaf)) {
+    throw "Locally built FFmpeg archive missing: $ffmpegZip. Produce it via installer/cache/$FfmpegSourceBundleName/build.sh."
+}
+$ffmpegZipActualSha256 = Get-Sha256 $ffmpegZip
+if ($ffmpegZipActualSha256 -ne $FfmpegSha256) {
+    throw "SHA256 mismatch for $ffmpegZip. Expected $FfmpegSha256, got $ffmpegZipActualSha256"
+}
 Invoke-Download -Uri $WebView2Url -Destination $webViewInstaller `
     -Sha256 $WebView2Sha256 -RequireMicrosoftSignature
 
@@ -247,6 +338,12 @@ if (Test-Path -LiteralPath $StagingRoot) {
 }
 New-Item -ItemType Directory -Force -Path $StagingRoot | Out-Null
 Copy-Tree $publishDir $StagingRoot
+Copy-Tree $verificationPublishRoot (Join-Path $StagingRoot 'tools\verification')
+$appExe = Join-Path $StagingRoot 'AmllMvStudio.exe'
+$appIcon = Join-Path $StagingRoot 'Assets\app.ico'
+if (-not (Test-Path -LiteralPath $appExe -PathType Leaf)) { throw "Published executable missing: $appExe" }
+if (-not (Test-Path -LiteralPath $appIcon -PathType Leaf)) { throw "Application icon missing: $appIcon" }
+if ((Get-Item -LiteralPath $appIcon).Length -lt 256) { throw "Application icon is unexpectedly small: $appIcon" }
 Remove-Item -LiteralPath (Join-Path $StagingRoot 'runtime\content') -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path (Join-Path $ContentRoot 'scripts') | Out-Null
 Copy-Tree (Join-Path $ProjectRoot 'dist') (Join-Path $ContentRoot 'dist')
@@ -274,18 +371,31 @@ Expand-Archive -LiteralPath $nodeZip -DestinationPath $nodeTemp -Force
 $nodeExtracted = Get-ChildItem -LiteralPath $nodeTemp -Directory | Select-Object -First 1
 Copy-Tree $nodeExtracted.FullName (Join-Path $StagingRoot 'runtime\node')
 
-$runtimePackages = Get-RequiredNpmPackages @('vite', 'playwright-core')
+$runtimePackages = Get-RequiredNpmPackages @('vite', '@vitejs/plugin-react', 'playwright-core')
 foreach ($package in $runtimePackages) { Copy-NpmPackage $package }
 Write-Host "Packaged $($runtimePackages.Count) runtime npm packages: $($runtimePackages -join ', ')"
 
 $ffmpegTemp = Join-Path $TempRoot 'ffmpeg'
 Remove-Item -LiteralPath $ffmpegTemp -Recurse -Force -ErrorAction SilentlyContinue
 Expand-Archive -LiteralPath $ffmpegZip -DestinationPath $ffmpegTemp -Force
-$ffmpegSource = Get-ChildItem -LiteralPath $ffmpegTemp -Filter ffmpeg.exe -File -Recurse | Select-Object -First 1
-if (-not $ffmpegSource) { throw "ffmpeg.exe was not found in $FfmpegArchive" }
+$ffmpegArchiveRoot = Join-Path $ffmpegTemp 'ffmpeg-8.1.2-amll-minimal-gpl'
+if (-not (Test-Path -LiteralPath $ffmpegArchiveRoot -PathType Container)) {
+    throw "Unexpected FFmpeg archive layout: $ffmpegArchiveRoot is missing."
+}
+$ffmpegSource = Join-Path $ffmpegArchiveRoot 'bin\ffmpeg.exe'
+if (-not (Test-Path -LiteralPath $ffmpegSource -PathType Leaf)) { throw "ffmpeg.exe was not found in $FfmpegArchive" }
 $ffmpegDestination = Join-Path $StagingRoot 'runtime\ffmpeg\ffmpeg.exe'
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ffmpegDestination) | Out-Null
-Copy-Item -LiteralPath $ffmpegSource.FullName -Destination $ffmpegDestination -Force
+Copy-Item -LiteralPath $ffmpegSource -Destination $ffmpegDestination -Force
+$ffmpegLegalRoot = Join-Path $StagingRoot 'licenses\ffmpeg'
+New-Item -ItemType Directory -Force -Path $ffmpegLegalRoot | Out-Null
+foreach ($legalName in @('LICENSE-GPL-3.0.txt', 'BUILD-INFORMATION.txt')) {
+    $legalSource = Join-Path $ffmpegArchiveRoot $legalName
+    if (-not (Test-Path -LiteralPath $legalSource -PathType Leaf)) {
+        throw "Required FFmpeg legal file missing from $FfmpegArchive`: $legalName"
+    }
+    Copy-Item -LiteralPath $legalSource -Destination (Join-Path $ffmpegLegalRoot $legalName) -Force
+}
 
 # Keep the npm package layout used by render-mv.mjs and also expose a stable runtime path.
 Copy-Item -LiteralPath (Join-Path $InstallerRoot 'THIRD-PARTY-NOTICES.md') `
@@ -296,14 +406,15 @@ Copy-Item -LiteralPath (Join-Path $InstallerRoot 'NOTICE.txt') `
     -Destination (Join-Path $StagingRoot 'NOTICE.txt') -Force
 Copy-Item -LiteralPath (Join-Path $InstallerRoot 'COPYING.GPLv3.txt') `
     -Destination (Join-Path $StagingRoot 'COPYING.GPLv3.txt') -Force
-Copy-Item -LiteralPath $VersionFile -Destination (Join-Path $StagingRoot 'VERSION') -Force
+[IO.File]::WriteAllText((Join-Path $StagingRoot 'VERSION'), "$Version`r`n", $utf8NoBom)
 $webViewDestination = Join-Path $StagingRoot 'runtime\webview2\MicrosoftEdgeWebview2Setup.exe'
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $webViewDestination) | Out-Null
 Copy-Item -LiteralPath $webViewInstaller -Destination $webViewDestination -Force
 
 # Preserve exact third-party legal texts alongside the aggregate notice.
 $legalRoot = Join-Path $StagingRoot 'licenses'
-New-Item -ItemType Directory -Force -Path $legalRoot | Out-Null
+$npmLegalRoot = Join-Path $legalRoot 'npm'
+New-Item -ItemType Directory -Force -Path $legalRoot, $npmLegalRoot | Out-Null
 $legalFiles = @{
     'Node-LICENSE.txt' = Join-Path $StagingRoot 'runtime\node\LICENSE'
     'Playwright-LICENSE.txt' = Join-Path $ProjectRoot 'node_modules\playwright-core\LICENSE'
@@ -322,11 +433,40 @@ $legalFiles = @{
     'WebView2-SDK-NOTICE.txt' = Join-Path $env:USERPROFILE '.nuget\packages\microsoft.web.webview2\1.0.4191.47\NOTICE.txt'
 }
 foreach ($entry in $legalFiles.GetEnumerator()) {
-    if (Test-Path -LiteralPath $entry.Value) {
-        Copy-Item -LiteralPath $entry.Value -Destination (Join-Path $legalRoot $entry.Key) -Force
-    } else {
-        Write-Warning "Legal file not found: $($entry.Value)"
+    if (-not (Test-Path -LiteralPath $entry.Value -PathType Leaf)) {
+        throw "Required legal file not found: $($entry.Value)"
     }
+    Copy-Item -LiteralPath $entry.Value -Destination (Join-Path $legalRoot $entry.Key) -Force
+}
+
+$productionNpmPackages = Get-ProductionNpmPackages
+$productionLegalPackages = [Collections.Generic.List[object]]::new()
+foreach ($package in $productionNpmPackages) {
+    if (-not $package.license -or -not $package.source) {
+        throw "Production npm package lacks locked license/source metadata: $($package.name)@$($package.version)"
+    }
+    $packageRoot = Get-NpmPackagePath $ProjectRoot $package.name
+    if (-not (Test-Path -LiteralPath $packageRoot -PathType Container)) {
+        throw "Production npm package is not installed: $($package.name)@$($package.version)"
+    }
+    $licenseSource = Get-NpmLegalFile $packageRoot
+    if (-not $licenseSource) {
+        if ($package.name -eq '@pixi/colord') {
+            $licenseSource = Join-Path $CacheRoot 'pixi-colord-2.9.6-LICENSE.md'
+            Invoke-Download -Uri $PixiColordLicenseUrl -Destination $licenseSource -Sha256 $PixiColordLicenseSha256
+        } else {
+            throw "Production npm package lacks an original legal text: $($package.name)@$($package.version)"
+        }
+    }
+    $licenseName = ($package.name -replace '^@', '' -replace '/', '__') + "-$($package.version)-" + (Split-Path -Leaf $licenseSource)
+    Copy-Item -LiteralPath $licenseSource -Destination (Join-Path $npmLegalRoot $licenseName) -Force
+    $productionLegalPackages.Add([ordered]@{
+        name = $package.name
+        version = $package.version
+        license = $package.license
+        source = $package.source
+        licenseFile = "licenses/npm/$licenseName"
+    })
 }
 
 Write-Step 'Installing pinned Playwright Chromium into staging'
@@ -373,12 +513,11 @@ New-Item -ItemType Directory -Force -Path $browserLicenseRoot | Out-Null
 # Chrome for Testing provides only ABOUT -> chrome://credits, not a license text.
 # Ship the vendored official Chromium license from installer/legal.
 $chromiumLicenseSource = Join-Path $InstallerRoot 'legal\Chromium-LICENSE.txt'
-if (Test-Path -LiteralPath $chromiumLicenseSource) {
-    Copy-Item -LiteralPath $chromiumLicenseSource -Destination (Join-Path $browserLicenseRoot 'Chromium-LICENSE.txt') -Force
-    Copy-Item -LiteralPath $chromiumLicenseSource -Destination (Join-Path $StagingRoot 'licenses\Chromium-LICENSE.txt') -Force
-} else {
-    Write-Warning "Chromium license text missing: $chromiumLicenseSource"
+if (-not (Test-Path -LiteralPath $chromiumLicenseSource -PathType Leaf)) {
+    throw "Required Chromium license text missing: $chromiumLicenseSource"
 }
+Copy-Item -LiteralPath $chromiumLicenseSource -Destination (Join-Path $browserLicenseRoot 'Chromium-LICENSE.txt') -Force
+Copy-Item -LiteralPath $chromiumLicenseSource -Destination (Join-Path $StagingRoot 'licenses\Chromium-LICENSE.txt') -Force
 if (-not $Lite) {
     $browserLegalFiles = Get-ChildItem -LiteralPath $env:PLAYWRIGHT_BROWSERS_PATH -Recurse -File |
         Where-Object { $_.Name -match '^(LICENSE|LICENSES|NOTICE|ThirdPartyNotices|COPYING)(\..*)?$' }
@@ -390,6 +529,7 @@ if (-not $Lite) {
     }
 }
 
+$runtimeNpmPackages = Get-LockedNpmPackages $runtimePackages
 $runtimeFileHashes = [ordered]@{
     renderMv = Get-Sha256 (Join-Path $ContentRoot 'scripts\render-mv.mjs')
     renderLib = Get-Sha256 (Join-Path $ContentRoot 'scripts\render-lib.mjs')
@@ -409,7 +549,7 @@ if (-not $Lite) {
     $chromiumActualVersion = (Get-Item -LiteralPath $chromiumExecutable).VersionInfo.ProductVersion
 }
 $manifest = [ordered]@{
-    product = 'AMLL MV Studio'
+    product = 'AMLL Lyric MV Studio'
     variant = if ($Lite) { 'lite' } else { 'full' }
     version = $Version
     architecture = 'x64'
@@ -423,15 +563,35 @@ $manifest = [ordered]@{
         actualChromiumVersion = if ($Lite) { $null } else { $chromiumActualVersion }
         revision = $ChromiumRevision
         bundled = (-not $Lite)
-        cacheArchive = $ChromiumCacheArchive
-        cacheSha256 = Get-Sha256 $chromiumCache
+        cacheArchive = if ($Lite) { $null } else { $ChromiumCacheArchive }
+        cacheSha256 = if ($Lite) { $null } else { Get-Sha256 $chromiumCache }
     }
-    ffmpeg = [ordered]@{ version = $FfmpegVersion; actualVersion = $ffmpegActualVersion; archive = $FfmpegArchive; sha256 = $FfmpegSha256; url = $FfmpegUrl; license = 'GPLv3'; libx264 = $true }
+    ffmpeg = [ordered]@{ version = $FfmpegVersion; actualVersion = $ffmpegActualVersion; archive = $FfmpegArchive; sha256 = $FfmpegSha256; sourceBundle = $FfmpegSourceBundleName; license = 'GPL-3.0 (FFmpeg GPL components; libx264 GPL-2.0-or-later; nv-codec-headers MIT)'; libx264 = $true }
     renderScripts = [ordered]@{ entry = 'runtime/content/scripts/render-mv.mjs'; library = 'runtime/content/scripts/render-lib.mjs' }
     fileSha256 = $runtimeFileHashes
-    runtimeNpmPackages = $runtimePackages
+    # Inline projection to ordered dicts: Windows PowerShell 5.1 ConvertTo-Json
+    # serializes a plain object[] array property as {"value":[...],"Count":N},
+    # which downstream consumers would read as a single entry.
+    runtimeNpmPackages = @($runtimeNpmPackages | ForEach-Object { [ordered]@{ name = [string]$_.name; version = [string]$_.version } })
+    productionNpmPackages = @($productionLegalPackages | ForEach-Object { [ordered]@{ name = [string]$_.name; version = [string]$_.version; license = [string]$_.license; source = [string]$_.source; licenseFile = [string]$_.licenseFile } })
 }
-$manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $StagingRoot 'package-manifest.json') -Encoding UTF8
+$manifestPath = Join-Path $StagingRoot 'package-manifest.json'
+Remove-ForeignNodeModulesState
+$stagedEntries = [ordered]@{}
+Get-ChildItem -LiteralPath $StagingRoot -Recurse -File | Where-Object {
+    $_.FullName -ne $manifestPath
+} | ForEach-Object {
+    $stagedEntries[[string]$_.FullName.Substring($StagingRoot.Length).TrimStart('\').Replace('\', '/')] =
+        [ordered]@{ sizeBytes = $_.Length; sha256 = Get-Sha256 $_.FullName }
+}
+$stagedPaths = [System.Collections.Generic.List[string]]::new()
+foreach ($key in $stagedEntries.Keys) { $stagedPaths.Add([string]$key) }
+$stagedPaths.Sort([StringComparer]::Ordinal)
+$stagedFiles = @($stagedPaths | ForEach-Object {
+    [ordered]@{ path = $_; sha256 = $stagedEntries[$_].sha256; sizeBytes = $stagedEntries[$_].sizeBytes }
+})
+$manifest['stagedFiles'] = $stagedFiles
+$manifest | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
 
 if (-not $SkipVerify) {
     Write-Step 'Verifying standalone staging package'
@@ -459,11 +619,15 @@ if (-not $SkipInstaller) {
     } else {
         $env:PLAYWRIGHT_BROWSERS_PATH = $previousPlaywrightBrowsersPath
     }
+    # External tooling may write hook-state into staging node_modules while
+    # verification runs; purge it so the compiled installer stays exactly the
+    # set of files the manifest pinned.
+    Remove-ForeignNodeModulesState
     $isccArgs = @("/DMyAppVersion=$Version", (Join-Path $InstallerRoot 'AMLL-MV-Studio.iss'))
     if ($Lite) { $isccArgs = @("/DMyAppFlavor=Lite") + $isccArgs }
     & $iscc @isccArgs
     if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
-    $setupName = if ($Lite) { "AMLL-MV-Studio-$Version-x64-Lite-Setup.exe" } else { "AMLL-MV-Studio-$Version-x64-Setup.exe" }
+    $setupName = if ($Lite) { "AMLL-Lyric-MV-Studio-$Version-x64-Lite-Setup.exe" } else { "AMLL-Lyric-MV-Studio-$Version-x64-Setup.exe" }
     $setupPath = Join-Path $OutputRoot $setupName
     if (-not (Test-Path -LiteralPath $setupPath)) { throw "ISCC succeeded, but installer is missing: $setupPath" }
     $setupItem = Get-Item -LiteralPath $setupPath

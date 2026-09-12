@@ -18,15 +18,41 @@ import {
   formatConcatTimeline,
   getEncoderQualityArgs,
   getFfmpegCfrArgs,
+  holdFirstFrameUntil,
   normalizeCanonicalOptions,
   normalizeCapturedFrames,
   parseEncoderListing,
   parseEncoderPresetHelp,
   parseFfmpegMajorVersion,
   resolveEncoderPreset,
+  resolveRenderTiming,
   resolveRuntimeTools,
 } from "../render-lib.mjs";
-import { probeEncoder } from "../render-mv.mjs";
+import { parseArgs, parseOptions, probeEncoder } from "../render-mv.mjs";
+
+assert.deepEqual(parseArgs(["--audio", "song.wav", "--head=1250"]), { audio: "song.wav", head: "1250" });
+assert.throws(() => parseArgs(["--head"]), /--head 缺少值/);
+assert.throws(() => parseArgs(["--head", "1", "--head", "2"]), /参数重复：--head/);
+const parseRoot = mkdtempSync(join(tmpdir(), "amll-options-test-"));
+try {
+  const audioPath = join(parseRoot, "song.wav");
+  writeFileSync(audioPath, "test");
+  const options = parseOptions(["--audio", audioPath, "--tail", "0"]);
+  assert.equal(options.headMs, 0);
+  assert.match(options.outputPath, /song-1920x1080-60fps\.mp4$/);
+  assert.throws(() => parseOptions(["--audio", audioPath, "--tail", "0", "--audio-codec", "copy"]), /copy 仅支持 MKV/);
+  assert.doesNotThrow(() => parseOptions(["--audio", audioPath, "--tail", "0", "--audio-codec", "copy", "--out", join(parseRoot, "copy.mkv")]));
+  assert.equal(parseOptions(["--audio", audioPath, "--head", "600000", "--tail", "0"]).headMs, 600000);
+  assert.throws(() => parseOptions(["--audio", audioPath, "--head", "-1"]), /--head 必须是 0\.\.600000/);
+  assert.throws(() => parseOptions(["--audio", audioPath, "--head", "600001"]), /--head 必须是 0\.\.600000/);
+} finally {
+  rmSync(parseRoot, { recursive: true, force: true });
+}
+
+const timing = resolveRenderTiming({ audioDurationMs: 5000, durationLimitMs: 3200, headMs: 750, tailMs: 1250 });
+assert.deepEqual(timing, { sourceDurationMs: 3200, totalDurationMs: 5200, audioOffsetMs: 750 });
+assert.deepEqual(resolveRenderTiming({ audioDurationMs: 5000 }), { sourceDurationMs: 5000, totalDurationMs: 5000, audioOffsetMs: 0 });
+assert.throws(() => resolveRenderTiming({ audioDurationMs: 0 }), /有限正数/);
 
 const normalized = normalizeCapturedFrames([
   { index: 0, timestampMs: 1000, receivedAtMs: 2000 },
@@ -42,7 +68,32 @@ const timeline = buildCfrTimeline([
   { index: 2, timestampMs: 1250 },
 ], 10, 500);
 assert.equal(timeline.totalFrames, 5);
+assert.equal(timeline.timelineStartTimestampMs, 1000);
 assert.deepEqual(timeline.selectedIndices, [0, 1, 1, 2, 2]);
+const plannedTimeline = buildCfrTimeline([
+  { index: 0, timestampMs: 1025 },
+  { index: 1, timestampMs: 1070 },
+  { index: 2, timestampMs: 1250 },
+], 10, 400, { startTimestampMs: 1000 });
+assert.equal(plannedTimeline.timelineStartTimestampMs, 1000);
+assert.deepEqual(plannedTimeline.selectedIndices, [0, 1, 1, 2]);
+assert.throws(
+  () => buildCfrTimeline([{ index: 0, timestampMs: 1000 }], 10, 100, { startTimestampMs: NaN }),
+  /startTimestampMs 必须是有限数值/,
+);
+const heldFrames = holdFirstFrameUntil([
+  { index: 0, timestampMs: 1000 },
+  { index: 1, timestampMs: 1100 },
+  { index: 2, timestampMs: 1499 },
+  { index: 3, timestampMs: 1500 },
+  { index: 4, timestampMs: 1600 },
+], 1500);
+assert.deepEqual(heldFrames.map((frame) => frame.index), [0, 3, 4]);
+const heldTimeline = buildCfrTimeline(heldFrames, 10, 800, { startTimestampMs: 1000 });
+assert.deepEqual(heldTimeline.selectedIndices.slice(0, 5), [0, 0, 0, 0, 0],
+  "the entire 500 ms head must repeat the readiness baseline frame");
+assert.equal(heldTimeline.selectedIndices[5], 3, "the first post-head frame must begin at audio start");
+assert.throws(() => holdFirstFrameUntil([], 1500), /至少一个捕获帧/);
 assert.match(formatConcatTimeline(timeline.selectedIndices, 10), /file 'f00000001\.jpg'\nduration 0\.100000000/);
 assert.equal(formatConcatTimeline(timeline.selectedIndices, 10).trim().split("\n").at(-1), "file 'f00000002.jpg'");
 
@@ -176,10 +227,19 @@ try {
   rmSync(developmentRoot, { recursive: true, force: true });
 }
 
-assert.doesNotThrow(() => assertCopyTimingCompatible({ audioCodec: "copy", durationLimitMs: null, tailMs: 0, audioOffsetMs: 0 }));
-assert.throws(() => assertCopyTimingCompatible({ audioCodec: "copy", durationLimitMs: 1000, tailMs: 0, audioOffsetMs: 0 }), /--duration/);
-assert.throws(() => assertCopyTimingCompatible({ audioCodec: "copy", durationLimitMs: null, tailMs: 1, audioOffsetMs: 0 }), /--tail/);
-assert.throws(() => assertCopyTimingCompatible({ audioCodec: "copy", durationLimitMs: null, tailMs: 0, audioOffsetMs: 1 }), /offset/);
+assert.doesNotThrow(() => assertCopyTimingCompatible({ audioCodec: "copy", durationLimitMs: null, headMs: 0, tailMs: 0, audioOffsetMs: 0 }));
+assert.throws(() => assertCopyTimingCompatible({ audioCodec: "copy", durationLimitMs: 1000, headMs: 0, tailMs: 0, audioOffsetMs: 0 }), /--duration/);
+assert.throws(() => assertCopyTimingCompatible({ audioCodec: "copy", durationLimitMs: null, headMs: 1, tailMs: 0, audioOffsetMs: 1 }), /--head/);
+assert.throws(() => assertCopyTimingCompatible({ audioCodec: "copy", durationLimitMs: null, headMs: 0, tailMs: 1, audioOffsetMs: 0 }), /--tail/);
+assert.throws(() => assertCopyTimingCompatible({ audioCodec: "copy", durationLimitMs: null, headMs: 0, tailMs: 0, audioOffsetMs: 1 }), /额外音频\/画面 offset/);
+try {
+  assertCopyTimingCompatible({ audioCodec: "copy", durationLimitMs: 1000, headMs: 500, tailMs: 250, audioOffsetMs: 500 });
+  assert.fail("copy timing conflicts should throw");
+} catch (error) {
+  assert.match(error.message, /--duration.*--head.*--tail/);
+  assert.equal((error.message.match(/--head/g) ?? []).length, 1);
+  assert(!error.message.includes("offset"), "head offset must not be reported twice");
+}
 
 const common = {
   audioPath: "D:/song.wav",
@@ -193,7 +253,7 @@ const common = {
   audioBitrate: "256k",
   ffmpegMajorVersion: 4,
 };
-const delayed = buildFfmpegArgs({ ...common, audioOffsetMs: 125 });
+const delayed = buildFfmpegArgs({ ...common, headMs: 125, audioOffsetMs: 125 });
 assert.deepEqual(delayed.slice(delayed.indexOf("-itsoffset"), delayed.indexOf("-itsoffset") + 2), ["-itsoffset", "0.125000"]);
 assert(!delayed.includes("apad"));
 assert(!delayed.includes("-shortest"));
@@ -213,8 +273,17 @@ assert.throws(
 const copied = buildFfmpegArgs({ ...common, outputPath: "D:/mv.mkv", audioCodec: "copy", audioOffsetMs: 0 });
 assert(!copied.includes("-af"));
 assert(!copied.includes("apad"));
+assert.throws(
+  () => buildFfmpegArgs({ ...common, outputPath: "D:/mv.mp4", audioCodec: "copy", audioOffsetMs: 0 }),
+  /copy 仅支持 MKV/,
+);
+assert.throws(
+  () => buildFfmpegArgs({ ...common, outputPath: "D:/mv.mov", audioCodec: "copy", audioOffsetMs: 0 }),
+  /copy 仅支持 MKV/,
+);
 for (const incompatible of [
   { durationLimitMs: 1000 },
+  { headMs: 100, audioOffsetMs: 100 },
   { tailMs: 100 },
   { audioOffsetMs: -1 },
   { audioOffsetMs: 1 },

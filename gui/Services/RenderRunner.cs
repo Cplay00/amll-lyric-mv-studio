@@ -48,6 +48,7 @@ public sealed class RenderRequest
     public int Fps { get; init; } = 60;
     public double FlowSpeed { get; init; } = 2;
     public double RenderScale { get; init; } = 1;
+    public int Head { get; init; }
     public int Tail { get; init; } = 1200;
     public int TailMs { get => Tail; init => Tail = value; }
     public int Crf { get => Quality; init => Quality = value; }
@@ -63,15 +64,15 @@ public sealed record EncoderProbeResult(
     bool Compiled,
     bool Available,
     string? FailureReason,
-    IReadOnlyList<string> SupportedPresets);
+    IReadOnlyList<string> SupportedPresets,
+    string? DefaultPreset);
 
 public sealed record EncoderOption(string Id, string Label, bool IsAvailable)
 {
     public bool IsCompiled { get; init; }
     public string? FailureReason { get; init; }
     public IReadOnlyList<string> SupportedPresets { get; init; } = Array.Empty<string>();
-    public bool UsesModernNvencPresets => SupportedPresets.Any(preset =>
-        preset.Length == 2 && preset[0] == 'p' && preset[1] is >= '1' and <= '7');
+    public string? DefaultPreset { get; init; }
     public string DisplayLabel => IsAvailable ? Label : $"{Label}（不可用）";
 }
 
@@ -117,9 +118,10 @@ public sealed class RenderRunner : IDisposable
         string scriptPath,
         RenderRequest request,
         string? ffmpegPath = null,
-        string? browserPath = null)
+        string? browserPath = null,
+        IReadOnlyCollection<string>? supportedPresets = null)
     {
-        ValidateRequest(request);
+        ValidateRequest(request, supportedPresets);
         static string F(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
         static string B(bool value) => value ? "true" : "false";
 
@@ -131,6 +133,7 @@ public sealed class RenderRunner : IDisposable
             "--fps", request.Fps.ToString(CultureInfo.InvariantCulture),
             "--flow-speed", F(request.FlowSpeed),
             "--render-scale", F(request.RenderScale),
+            "--head", request.Head.ToString(CultureInfo.InvariantCulture),
             "--tail", request.Tail.ToString(CultureInfo.InvariantCulture),
             "--title", request.Title,
             "--font-family", request.FontFamily,
@@ -157,6 +160,9 @@ public sealed class RenderRunner : IDisposable
             "--progress-json",
         };
 
+        if (string.IsNullOrWhiteSpace(request.OutputPath))
+            throw new ArgumentException("GUI 渲染请求必须提供绝对输出路径。", nameof(request.OutputPath));
+        Add("--out", request.OutputPath);
         if (!string.IsNullOrWhiteSpace(request.Artist)) Add("--artist", request.Artist);
         if (!string.IsNullOrWhiteSpace(request.Album)) Add("--album", request.Album);
         if (request.Encoder != "auto") Add("--encoder-preset", request.EncoderPreset);
@@ -165,7 +171,6 @@ public sealed class RenderRunner : IDisposable
         if (!string.IsNullOrWhiteSpace(browserPath)) Add("--browser", Path.GetFullPath(browserPath));
         if (!string.IsNullOrWhiteSpace(request.LyricPath)) Add("--lyric", request.LyricPath!);
         if (!string.IsNullOrWhiteSpace(request.CoverPath)) Add("--cover", request.CoverPath!);
-        if (!string.IsNullOrWhiteSpace(request.OutputPath)) Add("--out", request.OutputPath!);
         return args;
 
         void Add(string flag, string value)
@@ -175,7 +180,7 @@ public sealed class RenderRunner : IDisposable
         }
     }
 
-    public static void ValidateRequest(RenderRequest request)
+    public static void ValidateRequest(RenderRequest request, IReadOnlyCollection<string>? supportedPresets = null)
     {
         RenderContracts.ValidateChoice(request.SecondaryMode, RenderContracts.SecondaryModes, nameof(request.SecondaryMode));
         RenderContracts.ValidateChoice(request.BrowserGpu, RenderContracts.BrowserGpuModes, nameof(request.BrowserGpu));
@@ -185,17 +190,23 @@ public sealed class RenderRunner : IDisposable
         RenderContracts.RequireRange(request.LyricFade, 0, 0.3, nameof(request.LyricFade));
         RenderContracts.RequireRange(request.LyricOffset, -600, 600, nameof(request.LyricOffset));
         RenderContracts.RequireRange(request.BackgroundSaturation, 0, 2, nameof(request.BackgroundSaturation));
-        string? audioOutputError = RenderContracts.GetAudioOutputError(request.OutputPath, request.AudioCodec, request.Tail);
+        string? audioOutputError = RenderContracts.GetAudioOutputError(request.OutputPath, request.AudioCodec, request.Head, request.Tail);
         if (audioOutputError is not null) throw new ArgumentException(audioOutputError, nameof(request.AudioCodec));
+        if (!Path.IsPathFullyQualified(request.OutputPath ?? ""))
+            throw new ArgumentException("GUI 渲染请求必须提供绝对输出路径。", nameof(request.OutputPath));
         if (!RenderContracts.IsKnownEncoderPreset(request.Encoder, request.EncoderPreset))
             throw new ArgumentException($"{request.Encoder} 不接受 preset {request.EncoderPreset}。", nameof(request.EncoderPreset));
+        if (supportedPresets is not null && request.Encoder != "auto" &&
+            !supportedPresets.Contains(request.EncoderPreset, StringComparer.Ordinal))
+            throw new ArgumentException($"{request.Encoder} 的探测能力不支持 preset {request.EncoderPreset}。", nameof(request.EncoderPreset));
     }
 
     public async Task<IReadOnlyList<EncoderOption>> ProbeEncodersAsync(CancellationToken cancellationToken = default)
     {
         string? nodeExe = FindNodeExecutable();
         string scriptPath = Path.Combine(_projectRoot, "scripts", "render-mv.mjs");
-        if (nodeExe is null || !File.Exists(scriptPath)) return MarkUnavailable();
+        if (nodeExe is null || !File.Exists(scriptPath))
+            return MarkUnavailable("找不到 Node.js 或编码器探测脚本。");
 
         var args = new List<string> { scriptPath, "--list-encoders", "--progress-json" };
         string? ffmpegPath = RuntimePaths.FindFfmpegExecutable(_projectRoot);
@@ -205,11 +216,13 @@ public sealed class RenderRunner : IDisposable
         // 总超时兜底：损坏 GPU 驱动下硬件试编码可能逼近 2 分钟，UI 不应无限等待
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(90));
+        Task<string>? stdout = null;
+        Task<string>? stderr = null;
         try
         {
             process.Start();
-            Task<string> stdout = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-            Task<string> stderr = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+            stdout = process.StandardOutput.ReadToEndAsync();
+            stderr = process.StandardError.ReadToEndAsync();
             try
             {
                 await process.WaitForExitAsync(timeoutCts.Token);
@@ -217,18 +230,15 @@ public sealed class RenderRunner : IDisposable
             catch (OperationCanceledException)
             {
                 TryKill(process);
-                throw;
+                await WaitForProbeCleanupAsync(process, stdout, stderr);
+                if (cancellationToken.IsCancellationRequested) throw;
+                return MarkUnavailable("FFmpeg 编码器探测在 90 秒后超时。");
             }
             string text = (await stdout) + Environment.NewLine + (await stderr);
             var detected = ParseEncoderCapabilities(text);
-            if (detected.Count == 0) return MarkUnavailable();
+            if (detected.Count == 0) return MarkUnavailable("编码器探测未返回有效结果。");
             return KnownEncoders.Select(x => detected.TryGetValue(x.Id, out EncoderProbeResult? item)
-                ? new EncoderOption(x.Id, x.Label, item.Available)
-                {
-                    IsCompiled = item.Compiled,
-                    FailureReason = item.FailureReason,
-                    SupportedPresets = item.SupportedPresets,
-                }
+                ? CreateOption(x.Id, x.Label, item)
                 : new EncoderOption(x.Id, x.Label, false)
                 {
                     FailureReason = "编码器探测结果缺失。",
@@ -236,8 +246,19 @@ public sealed class RenderRunner : IDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            TryKill(process);
+            if (stdout is not null && stderr is not null)
+                await WaitForProbeCleanupAsync(process, stdout, stderr);
             Debug.WriteLine($"[RenderRunner] 编码器探测失败：{ex.Message}");
-            return MarkUnavailable();
+            return MarkUnavailable($"FFmpeg 编码器探测失败：{ex.Message}");
+        }
+
+        static async Task WaitForProbeCleanupAsync(Process process, Task<string> stdout, Task<string> stderr)
+        {
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (Exception ex) { Debug.WriteLine($"[RenderRunner] 等待探测进程退出失败：{ex.Message}"); }
+            try { await Task.WhenAll(stdout, stderr).WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (Exception ex) { Debug.WriteLine($"[RenderRunner] 等待探测输出结束失败：{ex.Message}"); }
         }
 
         static void TryKill(Process process)
@@ -246,10 +267,25 @@ public sealed class RenderRunner : IDisposable
             catch (Exception killEx) { Debug.WriteLine($"[RenderRunner] 探测进程清理失败：{killEx.Message}"); }
         }
 
-        static IReadOnlyList<EncoderOption> MarkUnavailable() =>
+        static EncoderOption CreateOption(string id, string label, EncoderProbeResult item)
+        {
+            IReadOnlyList<string> presets = RenderContracts.GetSupportedEncoderPresets(id, item.SupportedPresets);
+            bool available = item.Available && (id == "auto" || presets.Count > 0);
+            return new EncoderOption(id, label, available)
+            {
+                IsCompiled = item.Compiled,
+                FailureReason = available ? item.FailureReason : item.FailureReason ?? "未探测到受支持的编码预设。",
+                SupportedPresets = presets,
+                DefaultPreset = presets.Contains(item.DefaultPreset ?? "", StringComparer.Ordinal)
+                    ? item.DefaultPreset
+                    : presets.FirstOrDefault(),
+            };
+        }
+
+        static IReadOnlyList<EncoderOption> MarkUnavailable(string reason) =>
             KnownEncoders.Select(x => new EncoderOption(x.Id, x.Label, false)
             {
-                FailureReason = "无法完成 FFmpeg 真实试编码探测。",
+                FailureReason = reason,
             }).ToArray();
     }
 
@@ -286,7 +322,10 @@ public sealed class RenderRunner : IDisposable
                         item.TryGetProperty("failureReason", out JsonElement reasonElement) &&
                         reasonElement.ValueKind == JsonValueKind.String ? reasonElement.GetString() : null;
                     IReadOnlyList<string> presets = ReadPresets(item);
-                    result[id] = new EncoderProbeResult(compiled, available, failureReason, presets);
+                    string? defaultPreset = item.ValueKind == JsonValueKind.Object &&
+                        item.TryGetProperty("defaultPreset", out JsonElement defaultElement) &&
+                        defaultElement.ValueKind == JsonValueKind.String ? defaultElement.GetString() : null;
+                    result[id] = new EncoderProbeResult(compiled, available, failureReason, presets, defaultPreset);
                 }
             }
             catch (JsonException)
@@ -299,7 +338,7 @@ public sealed class RenderRunner : IDisposable
         {
             bool available = result.TryGetValue("libx264", out EncoderProbeResult? x264) && x264.Available;
             result["auto"] = new EncoderProbeResult(available, available,
-                available ? null : "自动编码要求可用的 libx264 CPU 回退。", Array.Empty<string>());
+                available ? null : "自动编码要求可用的 libx264 CPU 回退。", Array.Empty<string>(), null);
         }
         return result;
 
@@ -322,7 +361,7 @@ public sealed class RenderRunner : IDisposable
     internal static Dictionary<string, bool> ParseEncoderAvailability(string text) =>
         ParseEncoderCapabilities(text).ToDictionary(x => x.Key, x => x.Value.Available, StringComparer.OrdinalIgnoreCase);
 
-    public void Start(RenderRequest request)
+    public void Start(RenderRequest request, IReadOnlyCollection<string>? supportedPresets = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         string scriptPath = Path.Combine(_projectRoot, "scripts", "render-mv.mjs");
@@ -343,7 +382,8 @@ public sealed class RenderRunner : IDisposable
                     scriptPath,
                     request,
                     RuntimePaths.FindFfmpegExecutable(_projectRoot),
-                    RuntimePaths.FindBrowserExecutable())),
+                    RuntimePaths.FindBrowserExecutable(),
+                    supportedPresets)),
                 EnableRaisingEvents = true,
             };
             _process = process;

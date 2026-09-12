@@ -1,4 +1,4 @@
-# Windows installer and release build
+# AMLL Lyric MV Studio Windows installer and release build
 
 This directory is self-contained release infrastructure; generated downloads,
 staging files, and installers remain under `installer/`.
@@ -13,14 +13,17 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 The default build performs a clean `npm ci`, `npm run build`, self-contained
-`dotnet publish -c Release -r win-x64`, downloads and verifies pinned runtimes,
-installs Playwright Chromium into staging, runs package smoke tests, then calls
-Inno Setup 6. Use `-Lite` to omit bundled Chromium and verify rendering through
-the system Microsoft Edge (or Google Chrome fallback). Generated paths:
+`dotnet publish -c Release -r win-x64`, downloads and verifies pinned runtimes
+(Node, Chromium, WebView2), verifies the locally built static FFmpeg 8.1.2
+archive against its pinned SHA-256 (produced by
+`installer/cache/amll-ffmpeg-build-source/build.sh`), installs Playwright
+Chromium into staging, runs package smoke tests, then calls Inno Setup 6. Use
+`-Lite` to omit bundled Chromium and verify rendering through the system
+Microsoft Edge (or Google Chrome fallback). Generated paths:
 
 - `installer/staging/` — unpacked standalone application tree for the latest build.
-- `installer/output/AMLL-MV-Studio-<version>-x64-Setup.exe` — Full installer.
-- `installer/output/AMLL-MV-Studio-<version>-x64-Lite-Setup.exe` — Lite installer.
+- `installer/output/AMLL-Lyric-MV-Studio-<version>-x64-Setup.exe` — Full installer.
+- `installer/output/AMLL-Lyric-MV-Studio-<version>-x64-Lite-Setup.exe` — Lite installer.
 - `installer/cache/` — reusable verified downloads.
 
 Useful switches:
@@ -45,22 +48,32 @@ The installation root contains the GUI executable and self-contained .NET /
 Windows App SDK files plus:
 
 ```text
-dist/
-scripts/render-mv.mjs
-node_modules/                 # only render-time dependency closure
+runtime/content/dist/
+runtime/content/scripts/render-mv.mjs
+runtime/content/scripts/render-lib.mjs
+runtime/content/node_modules/         # Vite 7.3.6 + @vitejs/plugin-react 4.7.0 + playwright-core 1.63.0
+                                      # closure (fdir, picomatch, tinyglobby, @esbuild/win32-x64, ...)
 runtime/node/node.exe
 runtime/ffmpeg/ffmpeg.exe
-runtime/browsers/chromium-*/      # Full only
+runtime/browsers/chromium-*/          # Full only
 runtime/webview2/MicrosoftEdgeWebview2Setup.exe
-licenses/
+licenses/npm/                         # production npm dependency license texts
+tools/verification/                   # immutable package verification executables
+package-manifest.json                 # hashes every other staged file
 ```
 
 The Lite layout omits `runtime/browsers`. Its renderer discovers the installed
 Microsoft Edge first and Google Chrome as a fallback; the WebView2 bootstrapper
 is retained because the GUI preview itself requires the WebView2 Runtime.
 
-The installer is x64 and per-user (`PrivilegesRequired=lowest`), creates only
-selected Start Menu/desktop shortcuts, launches `AmllMvStudio.exe` directly,
+The installer is x64 and per-user (`PrivilegesRequired=lowest`). Simplified
+Chinese is the default language, the welcome page appears before the license,
+and its lower-left selector can restart Setup safely in Simplified Chinese,
+English, Japanese, Korean, French, German, Spanish, or Russian while preserving
+all original Setup command-line options. The repository bundles the official
+Inno Setup Simplified Chinese translation so compilation does not depend on a
+machine-specific language file. Setup creates only selected Start Menu/desktop
+shortcuts, launches `AmllMvStudio.exe` directly,
 and uninstalls program files. User media/output is never deleted. It sets the
 current user's `PLAYWRIGHT_BROWSERS_PATH` and removes it only if it still points
 to this installation. The browser also exists at Playwright's package-local
@@ -80,15 +93,26 @@ Run an independent package check with:
 .\installer\verify-package.ps1 -PackageRoot .\installer\staging -SystemBrowser
 ```
 
-The verifier copies staging to a random `%TEMP%` directory, scans text files
-for the development path, starts the GUI, checks Node/FFmpeg and the selected
-browser, and makes a one-second 320x180 smoke render. `-SkipGui` and
-`-SkipRender` may be used only for targeted diagnosis; release builds use all
-checks.
+The verifier copies staging to a random `%TEMP%` directory, strictly recomputes
+`package-manifest.json` for the complete file tree, checks the exact runtime npm
+name/version closure, scans text files for the development path, executes the
+prebuilt immutable GUI verification tools, checks Node/FFmpeg and the selected
+browser, and makes a one-second 320x180 smoke render. It does not restore or
+compile against the working tree. `-SkipGui` and `-SkipRender` may be used only
+for targeted diagnosis; release builds use all checks.
+
+After both variants pass, `finalize-release.ps1` creates the source/release set
+once rather than repeating large source archives per variant. It refuses to
+finalize without authenticated FFmpeg 8.1.2 source, the exact x264 source, and
+the complete self-built FFmpeg corresponding-source closure
+(`amll-ffmpeg-build-source` with `build.sh`), verified hash-by-hash.
 
 ## Distribution obligations
 
 Read `NOTICE.txt`, `LICENSE.txt`, `COPYING.GPLv3.txt`, and
-`THIRD-PARTY-NOTICES.md`. AMLL is AGPL-3.0-only and the included FFmpeg/libx264 build is GPLv3. Do not distribute
-the binary installer without fulfilling Corresponding Source requirements; do
-not describe the package as closed-source or unrestricted proprietary software.
+`THIRD-PARTY-NOTICES.md`. AMLL is AGPL-3.0-only and the bundled FFmpeg is a
+self-built static 8.1.2 GPL build (libx264-linked) whose complete
+Corresponding Source (`ffmpeg-8.1.2-corresponding-source/`, including
+`build.sh`) ships with the release. Do not distribute the binary installer
+without that bundle; do not describe the package as closed-source or
+unrestricted proprietary software.

@@ -33,6 +33,7 @@ public sealed class AppState : INotifyPropertyChanged
     private double _renderScale = 1;
     private string _preset = "1080p";
     private int _fps = 60;
+    private int _head;
     private int _tail = 1200;
     private string _encoder = RenderContracts.DefaultEncoder;
     private string _encoderPreset = "";
@@ -73,7 +74,8 @@ public sealed class AppState : INotifyPropertyChanged
     public double RenderScale { get => _renderScale; set => Set(ref _renderScale, RenderContracts.ClampFinite(value, 0.25, 1, 1)); }
     public string Preset { get => _preset; set => Set(ref _preset, StagePresets.Resolve(value).Id); }
     public int Fps { get => _fps; set => Set(ref _fps, Math.Clamp(value, 24, 60)); }
-    public int Tail { get => _tail; set { if (Set(ref _tail, value)) OnPropertyChanged(nameof(TailMs)); } }
+    public int Head { get => _head; set => Set(ref _head, Math.Clamp(value, 0, RenderContracts.MaxTimingPaddingMs)); }
+    public int Tail { get => _tail; set { if (Set(ref _tail, Math.Clamp(value, 0, RenderContracts.MaxTimingPaddingMs))) OnPropertyChanged(nameof(TailMs)); } }
     public string Encoder { get => _encoder; set => Set(ref _encoder, RenderContracts.NormalizeEncoder(value)); }
     public string EncoderPreset { get => _encoderPreset; set => Set(ref _encoderPreset, value ?? ""); }
     public int Quality { get => _quality; set { if (Set(ref _quality, value)) OnPropertyChanged(nameof(Crf)); } }
@@ -88,6 +90,17 @@ public sealed class AppState : INotifyPropertyChanged
     public bool HasAudio => !string.IsNullOrWhiteSpace(_audioPath);
 
     public static bool IsTitleValid(string? title) => !string.IsNullOrWhiteSpace(title);
+
+    public void NotifyAssetReselected(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        string? name = string.Equals(path, _audioPath, StringComparison.OrdinalIgnoreCase) ? nameof(AudioPath)
+            : string.Equals(path, _lyricPath, StringComparison.OrdinalIgnoreCase) ? nameof(LyricPath)
+            : string.Equals(path, _coverPath, StringComparison.OrdinalIgnoreCase) ? nameof(CoverPath) : null;
+        if (name is null) return;
+        OnPropertyChanged(name);
+        AssetsChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     private void SetAsset(ref string? field, string? value, [CallerMemberName] string? name = null)
     {

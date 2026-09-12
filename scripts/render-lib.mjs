@@ -102,14 +102,16 @@ export function parseEncoderPresetHelp(encoder, output) {
   return new Set(found);
 }
 
-export function assertCopyTimingCompatible({ audioCodec, durationLimitMs = null, tailMs = 0, audioOffsetMs = 0 }) {
+export function assertCopyTimingCompatible({ audioCodec, durationLimitMs = null, headMs = 0, tailMs = 0, audioOffsetMs = 0 }) {
   if (audioCodec !== "copy") return;
-  const conflicts = [];
-  if (durationLimitMs !== null) conflicts.push("--duration");
-  if (tailMs !== 0) conflicts.push("--tail");
-  if (Math.abs(audioOffsetMs) > 0.0005) conflicts.push("音频/画面 offset");
-  if (conflicts.length > 0) {
-    throw new Error(`--audio-codec copy 无法可靠处理 ${conflicts.join("、")}；请使用 aac/flac，或移除这些时序变换。`);
+  const conflicts = new Set();
+  if (durationLimitMs !== null) conflicts.add("--duration");
+  if (headMs !== 0) conflicts.add("--head");
+  if (tailMs !== 0) conflicts.add("--tail");
+  // --head 本身就是音频相对视频的已知偏移，不再重复报告为通用 offset。
+  if (Math.abs(audioOffsetMs - headMs) > 0.0005) conflicts.add("额外音频/画面 offset");
+  if (conflicts.size > 0) {
+    throw new Error(`--audio-codec copy 无法可靠处理 ${[...conflicts].join("、")}；请使用 aac/flac，或移除这些时序变换。`);
   }
 }
 
@@ -215,6 +217,20 @@ export function chooseEncoder(requested, capabilities) {
   return AUTO_ENCODER_ORDER.find((name) => supported.has(name));
 }
 
+export function resolveRenderTiming({ audioDurationMs, durationLimitMs = null, headMs = 0, tailMs = 0 }) {
+  if (!Number.isFinite(audioDurationMs) || audioDurationMs <= 0) {
+    throw new Error("audioDurationMs 必须是有限正数。");
+  }
+  const sourceDurationMs = durationLimitMs === null
+    ? audioDurationMs
+    : Math.min(audioDurationMs, durationLimitMs);
+  return {
+    sourceDurationMs,
+    totalDurationMs: headMs + sourceDurationMs + tailMs,
+    audioOffsetMs: headMs,
+  };
+}
+
 export function normalizeCapturedFrames(captured) {
   if (!Array.isArray(captured) || captured.length === 0) {
     throw new Error("没有可用于构造时间轴的捕获帧。");
@@ -243,17 +259,37 @@ export function normalizeCapturedFrames(captured) {
   });
 }
 
-export function buildCfrTimeline(captured, fps, durationMs) {
+export function holdFirstFrameUntil(captured, holdUntilTimestampMs) {
+  if (!Array.isArray(captured) || captured.length === 0) {
+    throw new Error("片头首帧保持需要至少一个捕获帧。");
+  }
+  if (!Number.isFinite(holdUntilTimestampMs)) {
+    throw new Error("holdUntilTimestampMs 必须是有限数值。");
+  }
+  const first = captured[0];
+  return [first, ...captured.slice(1).filter((frame) => {
+    const timestampMs = Number(frame?.timestampMs ?? frame?.ts);
+    return Number.isFinite(timestampMs) && timestampMs >= holdUntilTimestampMs;
+  })];
+}
+
+export function buildCfrTimeline(captured, fps, durationMs, options = {}) {
   if (!Number.isFinite(fps) || fps <= 0 || !Number.isFinite(durationMs) || durationMs <= 0) {
     throw new Error("fps 与 durationMs 必须是有限正数。");
   }
   const frames = normalizeCapturedFrames(captured);
   const firstTimestampMs = frames[0].timestampMs;
+  const timelineStartTimestampMs = options.startTimestampMs === undefined
+    ? firstTimestampMs
+    : Number(options.startTimestampMs);
+  if (!Number.isFinite(timelineStartTimestampMs)) {
+    throw new Error("startTimestampMs 必须是有限数值。");
+  }
   const totalFrames = Math.max(1, Math.ceil((durationMs * fps) / 1000));
   const selectedIndices = [];
   let sourceCursor = 0;
   for (let targetIndex = 0; targetIndex < totalFrames; targetIndex++) {
-    const targetTimestampMs = firstTimestampMs + (targetIndex * 1000) / fps;
+    const targetTimestampMs = timelineStartTimestampMs + (targetIndex * 1000) / fps;
     while (
       sourceCursor + 1 < frames.length &&
       frames[sourceCursor + 1].timestampMs <= targetTimestampMs
@@ -265,6 +301,7 @@ export function buildCfrTimeline(captured, fps, durationMs) {
   return {
     frames,
     firstTimestampMs,
+    timelineStartTimestampMs,
     totalFrames,
     durationMs: (totalFrames * 1000) / fps,
     selectedIndices,
@@ -344,8 +381,8 @@ export function validateContainer(outputPath, encoder, audioCodec) {
   if (extension === ".mp4" && audioCodec === "flac") {
     throw new Error("MP4 不支持本管线的 FLAC 音频输出；请改用 .mkv/.mov 或 --audio-codec aac。");
   }
-  if (extension === ".mov" && audioCodec === "copy") {
-    throw new Error("MOV 与源音频 copy 的兼容性无法保证；请使用 --audio-codec aac/flac。");
+  if (audioCodec === "copy" && extension !== ".mkv") {
+    throw new Error("--audio-codec copy 仅支持 MKV 输出；请改用 .mkv，或使用 aac/flac。");
   }
   if (encoder.startsWith("hevc_") || encoder === "libx265") return "hevc";
   return "h264";
@@ -368,6 +405,7 @@ export function buildFfmpegArgs(options) {
   assertCopyTimingCompatible({
     audioCodec,
     durationLimitMs: options.durationLimitMs ?? null,
+    headMs: options.headMs ?? 0,
     tailMs: options.tailMs ?? 0,
     audioOffsetMs,
   });

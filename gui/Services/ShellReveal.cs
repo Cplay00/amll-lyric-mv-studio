@@ -1,4 +1,6 @@
+using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using Windows.Storage;
 
@@ -25,6 +27,10 @@ namespace AmllMvStudio.Services;
 /// </summary>
 public static class ShellReveal
 {
+    private const string TestPipeEnvironmentVariable = "AMLL_OUTPUT_ACTION_TEST_PIPE";
+    private const string TestTokenEnvironmentVariable = "AMLL_OUTPUT_ACTION_TEST_TOKEN";
+    private const string TestPipePrefix = "amll-output-action-";
+
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern int SHParseDisplayName(
         string pszName, IntPtr pbc, out IntPtr ppidl, uint sfgaoIn, out uint psfgaoOut);
@@ -59,6 +65,7 @@ public static class ShellReveal
         }
 
         if (!File.Exists(fullPath) && !Directory.Exists(fullPath)) return false;
+        if (TryRecordTestLaunch("reveal", fullPath, out bool recorded)) return recorded;
 
         string? parentPath = Directory.Exists(fullPath)
             ? Directory.GetParent(fullPath)?.FullName
@@ -94,6 +101,37 @@ public static class ShellReveal
         ".mp4", ".webm", ".mkv", ".mov", ".m4v", ".avi",
     ];
 
+    private static bool TryRecordTestLaunch(string action, string fullPath, out bool result)
+    {
+        result = false;
+        string? pipeName = Environment.GetEnvironmentVariable(TestPipeEnvironmentVariable);
+        string? token = Environment.GetEnvironmentVariable(TestTokenEnvironmentVariable);
+        if (pipeName is null && token is null) return false;
+        if (string.IsNullOrWhiteSpace(pipeName) || string.IsNullOrWhiteSpace(token) ||
+            !pipeName.StartsWith(TestPipePrefix, StringComparison.Ordinal) ||
+            pipeName.Length != TestPipePrefix.Length + 32 ||
+            pipeName.Skip(TestPipePrefix.Length).Any(character => !Uri.IsHexDigit(character)) ||
+            token.Length != 64 || token.Any(character => !Uri.IsHexDigit(character)))
+            return true;
+
+        try
+        {
+            using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.Out,
+                PipeOptions.Asynchronous, System.Security.Principal.TokenImpersonationLevel.Identification);
+            pipe.Connect(5000);
+            using var writer = new BinaryWriter(pipe, Encoding.UTF8, leaveOpen: false);
+            writer.Write(token);
+            writer.Write(action);
+            writer.Write(fullPath);
+            result = true;
+        }
+        catch (Exception)
+        {
+            result = false;
+        }
+        return true;
+    }
+
     /// <summary>
     /// 用系统默认程序打开渲染产物。
     /// 仅允许已知的媒体扩展名，避免把用户提供的路径当作可执行文件启动。
@@ -116,6 +154,7 @@ public static class ShellReveal
 
         string ext = Path.GetExtension(fullPath).ToLowerInvariant();
         if (Array.IndexOf(LaunchableExtensions, ext) < 0) return false;
+        if (TryRecordTestLaunch("play", fullPath, out bool recorded)) return recorded;
 
         try
         {

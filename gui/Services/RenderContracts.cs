@@ -12,7 +12,8 @@ public static class RenderContracts
     public const string DefaultAudioCodec = "aac";
     public const string DefaultEncoder = "auto";
     public const double DefaultBackgroundSaturation = 1.2;
-    public const string AudioCopyOffsetWarning = "音频 copy 仅适用于片尾留白 0 ms；若音频与首帧存在时间偏移，渲染仍可能失败，建议使用 AAC。";
+    public const int MaxTimingPaddingMs = 600_000;
+    public const string AudioCopyOffsetWarning = "音频 copy 仅支持 MKV 输出，且片头与片尾留白必须均为 0 ms；若音频与首帧存在时间偏移，渲染仍可能失败，建议使用 AAC。";
 
     public const double MinLyricWidth = 30;
     public const double MaxLyricWidth = 80;
@@ -46,6 +47,17 @@ public static class RenderContracts
         return NoPresets;
     }
 
+    public static IReadOnlyList<string> GetSupportedEncoderPresets(
+        string encoder,
+        IEnumerable<string>? probedPresets) =>
+        encoder == "auto" || probedPresets is null
+            ? NoPresets
+            : GetEncoderPresets(encoder, modernNvenc: true)
+                .Concat(GetEncoderPresets(encoder, modernNvenc: false))
+                .Distinct(StringComparer.Ordinal)
+                .Where(new HashSet<string>(probedPresets, StringComparer.Ordinal).Contains)
+                .ToArray();
+
     public static string GetDefaultEncoderPreset(string encoder, bool modernNvenc = true)
     {
         IReadOnlyList<string> presets = GetEncoderPresets(encoder, modernNvenc);
@@ -77,19 +89,63 @@ public static class RenderContracts
     public static string GetOutputExtension(string? outputPath) =>
         string.IsNullOrWhiteSpace(outputPath) ? ".mp4" : Path.GetExtension(outputPath).ToLowerInvariant();
 
-    public static string? GetAudioOutputError(string? outputPath, string audioCodec, int tailMs)
+    public static string? GetAudioOutputError(string? outputPath, string audioCodec, int headMs, int tailMs)
     {
         string extension = GetOutputExtension(outputPath);
+        if (headMs is < 0 or > MaxTimingPaddingMs || tailMs is < 0 or > MaxTimingPaddingMs)
+            return $"片头与片尾时长必须介于 0 和 {MaxTimingPaddingMs} 毫秒之间。";
         // 与 render-lib.validateContainer 同源：非法容器在 GUI 就拦截，不要等抓帧完成后才失败
         if (extension is not (".mp4" or ".mkv" or ".mov"))
             return "输出容器仅支持 .mp4、.mov 或 .mkv；请修正输出文件名。";
         if (extension == ".mp4" && audioCodec == "flac")
             return "MP4 不支持 FLAC 音频；请选择 AAC/copy，或将输出文件改为 .mkv/.mov。";
-        if (extension == ".mov" && audioCodec == "copy")
-            return "MOV 与源音频 copy 的兼容性无法保证；请使用 AAC/FLAC。";
-        if (audioCodec == "copy" && tailMs > 0)
-            return "音频 copy 无法生成片尾留白；请将片尾留白设为 0 ms，或改用 AAC/FLAC。";
+        if (audioCodec == "copy" && extension != ".mkv")
+            return "音频 copy 仅支持 MKV 输出；请将输出文件改为 .mkv，或使用 AAC/FLAC。";
+        if (audioCodec == "copy" && (headMs > 0 || tailMs > 0))
+            return "音频 copy 无法处理片头或片尾时序变换；请将两者设为 0 ms，或改用 AAC/FLAC。";
         return null;
+    }
+
+    public static bool TryResolveGuiOutputPath(
+        string? outputText,
+        string projectRoot,
+        string audioPath,
+        int width,
+        int height,
+        int fps,
+        out string? outputPath,
+        out string? error)
+    {
+        try
+        {
+            string candidate;
+            if (string.IsNullOrWhiteSpace(outputText))
+            {
+                string audioStem = SanitizeFileName(Path.GetFileNameWithoutExtension(audioPath));
+                candidate = Path.Combine(projectRoot, "out", $"{audioStem}-{width}x{height}-{fps}fps.mp4");
+            }
+            else
+            {
+                candidate = outputText.Trim();
+                if (!Path.IsPathFullyQualified(candidate)) candidate = Path.Combine(projectRoot, candidate);
+            }
+            outputPath = Path.GetFullPath(candidate);
+            error = null;
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            outputPath = null;
+            error = $"输出路径无效：{ex.Message}";
+            return false;
+        }
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        var invalid = new HashSet<char>(Path.GetInvalidFileNameChars()) { '<', '>', ':', '"', '/', '\\', '|', '?', '*' };
+        string sanitized = new(value.Select(ch => char.IsControl(ch) || invalid.Contains(ch) ? '_' : ch).Take(120).ToArray());
+        return string.IsNullOrWhiteSpace(sanitized) ? "mv" : sanitized;
     }
 
     public static double ClampFinite(double value, double min, double max, double fallback) =>

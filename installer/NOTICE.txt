@@ -1,4 +1,4 @@
-AMLL MV Studio distribution notice
+AMLL Lyric MV Studio distribution notice
 
 This program and the included AMLL rendering components are free software,
 distributed under GNU Affero General Public License version 3 only

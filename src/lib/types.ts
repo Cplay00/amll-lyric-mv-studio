@@ -110,6 +110,7 @@ export interface StageReadyState {
   audioMetaLoaded: boolean;
   fontLoaded: boolean;
   stageLayoutReady: boolean;
+  backgroundReady: boolean;
 }
 
 export interface StageReadinessState {

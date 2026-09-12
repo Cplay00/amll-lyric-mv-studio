@@ -94,11 +94,10 @@ public sealed class LocalAssetServer : IDisposable
                 var (method, rawPath, headers) = await ReadRequestAsync(stream);
                 if (method is null) return;
 
-                // 校验 Host：阻断 DNS rebinding 把 127.0.0.1 服务挂到攻击者域名下的顶级导航
-                if (headers.TryGetValue("host", out string? host) &&
-                    !host.Trim().Equals($"127.0.0.1:{Port}", StringComparison.OrdinalIgnoreCase) &&
-                    !host.Trim().Equals($"localhost:{Port}", StringComparison.OrdinalIgnoreCase) &&
-                    !host.Trim().Equals($"[{IPAddress.IPv6Loopback}]:{Port}", StringComparison.OrdinalIgnoreCase))
+                // 仅接受应用实际发布的 authority，阻断缺失 Host、DNS rebinding 与备用环回名称。
+                string expectedAuthority = $"127.0.0.1:{Port}";
+                if (!headers.TryGetValue("host", out string? host) ||
+                    !string.Equals(host, expectedAuthority, StringComparison.Ordinal))
                 {
                     await WriteStatusAsync(stream, 403, "Forbidden", "text/plain; charset=utf-8",
                         Encoding.UTF8.GetBytes("403 Forbidden"), headOnly: false);
@@ -299,7 +298,16 @@ public sealed class LocalAssetServer : IDisposable
         {
             int colon = lines[i].IndexOf(':');
             if (colon <= 0) continue;
-            headers[lines[i][..colon].Trim()] = lines[i][(colon + 1)..].Trim();
+            string rawName = lines[i][..colon];
+            string name = rawName.Trim();
+            string value = lines[i][(colon + 1)..].Trim();
+            if (string.Equals(name, "host", StringComparison.OrdinalIgnoreCase) &&
+                (rawName.Length != name.Length || headers.ContainsKey(name)))
+            {
+                headers["host"] = string.Empty;
+                continue;
+            }
+            headers[name] = value;
         }
 
         return (parts[0], parts[1], headers);

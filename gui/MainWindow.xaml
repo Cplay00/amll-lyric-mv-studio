@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:views="using:AmllMvStudio.Views"
-    Title="AMLL 歌词 MV 工作台">
+    Title="AMLL Lyric MV Studio">
 
     <Grid x:Name="RootGrid" RequestedTheme="Dark" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <muxc:NavigationView
@@ -30,9 +30,19 @@
                 </muxc:NavigationViewItem>
             </muxc:NavigationView.MenuItems>
 
+            <muxc:NavigationView.FooterMenuItems>
+                <muxc:NavigationViewItem Content="About" Tag="about"
+                                         AutomationProperties.Name="About">
+                    <muxc:NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Help" />
+                    </muxc:NavigationViewItem.Icon>
+                </muxc:NavigationViewItem>
+            </muxc:NavigationView.FooterMenuItems>
+
             <Grid>
                 <views:PreviewPage x:Name="PreviewView" />
                 <views:ExportPage x:Name="ExportView" Visibility="Collapsed" />
+                <views:AboutPage x:Name="AboutView" Visibility="Collapsed" />
             </Grid>
         </muxc:NavigationView>
     </Grid>

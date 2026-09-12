@@ -247,6 +247,7 @@ export default function App() {
     audioMetaLoaded: false,
     fontLoaded: false,
     stageLayoutReady: false,
+    backgroundReady: false,
   });
 
   const stageRef = useRef<HTMLDivElement>(null);
@@ -632,6 +633,7 @@ export default function App() {
       readiness.audioMetaLoaded &&
       readiness.fontLoaded &&
       readiness.stageLayoutReady &&
+      readiness.backgroundReady &&
       !loadError;
 
     window.__amllMv.ready = allReady;
@@ -968,6 +970,102 @@ export default function App() {
     }
   }, [track?.coverUrl, track?.title, track?.artist, track]);
 
+  // BackgroundRender loads and draws asynchronously after the other assets report ready.
+  // Observe the WebGL draw itself because the default framebuffer is not preserved for
+  // later readPixels calls; only report ready after the loaded album produced two valid draws.
+  useEffect(() => {
+    let cancelled = false;
+    let retryFrame = 0;
+    let restoreDraw: (() => void) | undefined;
+    let albumFailureTimer = 0;
+    setReadiness((state) => ({ ...state, backgroundReady: false }));
+
+    // 失败时撤销 draw 拦截并给出明确错误：就绪门保持 false，桥接诊断通过 loadError 暴露原因。
+    const failAlbum = (message: string) => {
+      restoreDraw?.();
+      restoreDraw = undefined;
+      setLoadError(message);
+    };
+
+    const prepare = async () => {
+      const render = bgRef.current?.bgRender;
+      const canvas = render?.getElement() as HTMLCanvasElement | undefined;
+      const gl = canvas?.getContext("webgl");
+      if (!render || !canvas || !gl) {
+        retryFrame = requestAnimationFrame(() => { void prepare(); });
+        return;
+      }
+
+      const originalDraw = gl.drawArrays;
+      let albumLoaded = false;
+      let validDraws = 0;
+      gl.drawArrays = function (...args: Parameters<WebGLRenderingContext["drawArrays"]>) {
+        originalDraw.apply(this, args);
+        if (!albumLoaded || cancelled || gl.isContextLost()) return;
+        const pixel = new Uint8Array(4);
+        try {
+          gl.readPixels(
+            Math.floor(canvas.width / 2),
+            Math.floor(canvas.height / 2),
+            1,
+            1,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            pixel,
+          );
+          validDraws = pixel[3] > 0 ? validDraws + 1 : 0;
+        } catch {
+          validDraws = 0;
+        }
+        if (validDraws >= 2) {
+          window.clearTimeout(albumFailureTimer);
+          gl.drawArrays = originalDraw;
+          restoreDraw = undefined;
+          setReadiness((state) => ({ ...state, backgroundReady: true }));
+          if (isStaticBg) render.pause();
+        }
+      };
+      restoreDraw = () => { gl.drawArrays = originalDraw; };
+
+      // AMLL 的 setAlbum 对无法解码的封面只会静默失败（mesh 仍会绘制），
+      // 因此先用真实解码预检封面；失败即拒绝就绪并暴露明确错误。
+      try {
+        const response = await fetch(albumArtUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        await createImageBitmap(await response.blob());
+      } catch {
+        if (!cancelled) failAlbum("封面加载失败：图片无法解码，请更换专辑封面。");
+        return;
+      }
+
+      try {
+        await render.setAlbum(albumArtUrl);
+      } catch {
+        if (!cancelled) {
+          window.clearTimeout(albumFailureTimer);
+          failAlbum("封面加载失败：无法读取专辑封面资源。");
+        }
+        return;
+      }
+      if (cancelled) return;
+      albumLoaded = true;
+      render.resume();
+      // setAlbum 解码失败时只会静默 resolve，不会产生有效绘制；
+      // 用有界超时报告明确错误，而不是让就绪等待悬挂到上游 120 秒超时。
+      albumFailureTimer = window.setTimeout(() => {
+        if (!cancelled) failAlbum("封面加载失败：图片无法解码，请更换专辑封面。");
+      }, 15000);
+    };
+
+    void prepare();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(retryFrame);
+      window.clearTimeout(albumFailureTimer);
+      restoreDraw?.();
+    };
+  }, [albumArtUrl, preset.width, preset.height, isStaticBg]);
+
   // 注入到 stage 根节点的 CSS 自定义属性
   // backgroundSaturation 规范为 0..2，CSS 滤镜需百分比表示（例如 1.0 -> 100%）
   // lyricFade 为舞台高度比例，换算成舞台坐标系内的像素（.stage-lyrics 的 mask 使用）
@@ -1026,11 +1124,11 @@ export default function App() {
               data-height={preset.height}
               style={stageInlineStyle}
             >
-              {/* 全屏动态 MeshGradient 背景 */}
+              {/* 全屏动态 MeshGradient 背景；封面只由上方就绪 effect 调用 setAlbum 加载，
+                  album prop 会让包装组件再次 setAlbum，造成双重加载与就绪后背景变化竞态 */}
               <BackgroundRender
                 ref={bgRef}
                 className="stage-bg"
-                album={albumArtUrl || undefined}
                 playing={!isStaticBg}
                 fps={options.fps}
                 flowSpeed={options.flowSpeed}

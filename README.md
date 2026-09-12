@@ -1,14 +1,39 @@
-# AMLL 歌词 MV 工作台
+# AMLL Lyric MV Studio
 
-基于 [applemusic-like-lyrics（AMLL）](https://amll.dev/) 的 Apple Music 风格逐字歌词 MV 制作环境。
-载入音频、歌词与专辑封面后，即可得到 1:1 复刻 Apple Music 的**流光弥散背景 + 逐字渐进高亮 + 行间景深虚化**，
-并导出成片。
+![AMLL Lyric MV Studio 图标](gui/Assets/app.png)
+
+AMLL Lyric MV Studio 0.2.0 是由 **Cplay00** 开发、基于
+[applemusic-like-lyrics（AMLL）](https://github.com/amll-dev/applemusic-like-lyrics)
+的 Apple Music 风格逐字歌词 MV 制作与导出工具。载入音频、歌词和专辑封面后，可实时预览并导出包含流光弥散背景、逐字渐进高亮和行间景深虚化的成片。
 
 > **平台**：Windows 10 1809+（x64）。GUI 为 WinUI 3 原生程序；命令行渲染管线也可在 macOS / Linux 上独立使用（浏览器探测已覆盖三平台路径）。
 >
 > **许可证**：AGPL-3.0-only（本仓库与 AMLL 渲染组件），详见 [LICENSE](LICENSE) 与
 > [installer/NOTICE.txt](installer/NOTICE.txt)、[installer/THIRD-PARTY-NOTICES.md](installer/THIRD-PARTY-NOTICES.md)。
 > 安装包内嵌的 FFmpeg 为 GPLv3 构建。本项目与 Apple Inc. 无关，仅为其歌词视觉风格的复刻实现。
+
+## 核心功能
+
+- 原生 WinUI 3 桌面端与浏览器工作台，支持实时预览和参数调整。
+- 支持 TTML、LRC、YRC、QRC、LYS 等歌词格式，TTML 可呈现逐字、翻译、音译及背景人声。
+- Playwright 逐帧抓取配合 FFmpeg 编码，输出恒定帧率 H.264/AAC MP4。
+- 1080p、1440p、4K、竖屏、方形预设以及自定义分辨率、帧率和质量。
+- Full 与 Lite 两种 Windows 安装包，共用相同应用源码。
+
+## 架构概览
+
+浏览器工作台由 React、TypeScript、Vite 和 AMLL npm 包组成；WinUI 3 GUI 通过 WebView2 承载预览并调用本地渲染服务；命令行渲染器使用 Node.js、Playwright 与 FFmpeg。安装构建将前端产物、.NET 自包含 GUI 和固定版本运行时组装为隔离的 x64 包。
+
+## 作者与上游
+
+本项目由 **Cplay00** 创建和维护，歌词渲染能力基于 AMLL 上游社区成果。AMLL 的名称、源码和 npm 包归其相应贡献者所有；本项目与 Apple Inc. 无隶属或认可关系。
+
+## npm 依赖与上游
+
+AMLL 能力来自 npm 上的 `@applemusic-like-lyrics/core@0.5.2`、`react@0.5.2` 和 `lyric@1.0.2`，上游仓库为 [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics)。渲染栈还使用 React 18.3.1、PixiJS 7.4.3、Vite 7.3.6、Playwright Core 1.63.0 和安装包固定的 FFmpeg 8.1.2。精确依赖树与完整性值由 `package-lock.json` 锁定；许可证与获取来源见 [第三方声明](installer/THIRD-PARTY-NOTICES.md)。
+
+经仓库跟踪文件检查，本项目没有复制未修改的 AMLL 上游文件，也没有使用或伪装 AMLL Git submodule；所有 AMLL 上游代码均通过声明的 npm 包获取。
+
 
 ## 已安装的组件
 
@@ -19,9 +44,9 @@
 | `@applemusic-like-lyrics/lyric` | 1.0.2 | 歌词解析/序列化：TTML、LRC、LRC A2、YRC、QRC、ESLyric、LYL、LYS、LQE |
 | `@pixi/*` | 7.4.3 | AMLL 背景的 PixiJS 渲染后端（含 `@pixi/filter-bulge-pinch@5.1.1`，其版本号体系与主包不同） |
 | `react` / `react-dom` | 18.3.1 | UI 框架 |
-| `vite` + `typescript` | 5.x | 构建与类型检查 |
-| `playwright-core` | 1.63 | 命令行渲染时驱动系统 Chrome/Edge 抓帧 |
-| `@ffmpeg-installer/ffmpeg` | 1.1 | 内置 ffmpeg 二进制，负责编码 MP4 |
+| `vite` + `typescript` | 7.3.6 / 5.9.3 | 构建与类型检查（Vite 的 esbuild 为 0.28.2） |
+| `playwright-core` | 1.63.0 | 命令行渲染时驱动系统 Chrome/Edge 抓帧 |
+| FFmpeg（Windows 安装包） | 8.1.2 自建最小 GPL 构建 | 安装包固定携带的静态 ffmpeg（libx264）；对应源码闭包随发布集提供，不使用 `@ffmpeg-installer` 的开发机二进制 |
 
 > 说明：AMLL 官方要求必须通过打包器引入（不支持 CDN），本工程已用 Vite 配好。
 > `@pixi/filter-bulge-pinch` 的最新版是 5.1.1，它对应的是 Pixi v7，属于正常现象。
@@ -96,6 +121,7 @@ npm run render -- \
 | `--crf` | x264 质量，越小越好，默认 `16`（近乎视觉无损） |
 | `--flow-speed` | 背景流动速度，默认 `2` |
 | `--render-scale` | 背景内部分辨率倍率 0.25–1，默认 `1`（最清晰） |
+| `--head` | 片头保持首帧的毫秒数，默认 `0` |
 | `--tail` | 片尾额外留白毫秒数，默认 `1200` |
 | `--keep-frames` | 保留中间帧与渲染日志，便于排查 |
 | `--browser` | 指定 Chromium 内核浏览器路径 |
@@ -163,11 +189,20 @@ TTML 是 Apple Music 使用的官方格式，能表达**逐字（Word 级）时�
 效果最佳。可用 [amll-ttml-tool](https://github.com/amll-dev/amll-ttml-tool) 制作与编辑。
 LRC 只能表达逐行时间戳，播放时整行一起亮起；YRC / QRC / LYS 等国产逐字格式也已被支持。
 
-## 从源码构建安装包
+## Full / Lite 与发布产物
 
-发布版安装包由 [installer/build-installer.ps1](installer/build-installer.ps1) 一键组装：
+| 版本 | 浏览器运行时 | 适用场景 | 安装包文件名 |
+| --- | --- | --- | --- |
+| Full | 内嵌固定版本 Chromium | 开箱即用、可复现渲染 | `AMLL-Lyric-MV-Studio-0.2.0-x64-Setup.exe` |
+| Lite | 使用系统 Edge，回退 Chrome | 更小下载体积 | `AMLL-Lyric-MV-Studio-0.2.0-x64-Lite-Setup.exe` |
+
+两种安装包都包含 GUI 所需的 WebView2 Evergreen bootstrapper、Node.js、固定 FFmpeg 8.1.2、许可证和包清单。发布时应同时提供安装包、SHA256/签名元数据、对应源码及发行说明；本仓库不会将生成的二进制视为源码的一部分。`@ffmpeg-installer/ffmpeg` 仅是源码开发依赖，不是 Windows 安装包运行时。
+
+## 构建与验证
+
+发布版安装包由 [installer/build-installer.ps1](installer/build-installer.ps1) 分别组装 Full/Lite；两者都通过后，由 [installer/finalize-release.ps1](installer/finalize-release.ps1) 一次生成发布集和应用源码归档。构建步骤为：
 干净 `npm ci` → 前端构建 → .NET 8 自包含发布 → 下载并校验固定版本运行时
-（Node 24 / FFmpeg 8.1.2 / Chromium 153 / WebView2 bootstrapper）→ 隔离冒烟验证 → Inno Setup 打包。
+（Node 24 / 本地构建的静态 FFmpeg 8.1.2 / Chromium 153 / WebView2 bootstrapper）→ 隔离冒烟验证 → Inno Setup 打包。
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -177,7 +212,16 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 两种变体共用同一源码：Lite 版省去约 180MB 的内嵌浏览器，渲染时自动回退到
 系统已安装的 Microsoft Edge 或 Google Chrome（GUI 预览始终使用系统 WebView2 运行时）。
-详见 [installer/README.md](installer/README.md)。
+构建后可分别执行 `installer/verify-package.ps1`；Full 检查内嵌 Chromium，Lite 使用
+`-SystemBrowser` 确认系统浏览器发现。验证器还检查清单哈希、应用图标、Node/FFmpeg 版本、
+GUI 启动以及一秒钟隔离渲染。详见 [installer/README.md](installer/README.md)。
+
+## 发布
+
+0.2.0 的 Windows x64 产物命名为 `AMLL-Lyric-MV-Studio-0.2.0-x64-Setup.exe` 和
+`AMLL-Lyric-MV-Studio-0.2.0-x64-Lite-Setup.exe`。发布前应分别构建和运行完整包验证，
+再附带生成的 `.json` SHA256/签名元数据、对应源码、许可证及发行说明；请勿将旧的
+`AMLL-MV-Studio-*` 产物误标为 0.2.0。`finalize-release.ps1` 在 Full/Lite 任一缺失、自建 FFmpeg 8.1.2 对应源码闭包（`amll-ffmpeg-build-source`，含 `build.sh`）哈希校验失败时拒绝准备 final release。
 
 ## 常见问题
 

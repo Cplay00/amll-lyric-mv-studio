@@ -18,7 +18,16 @@
     <!-- 自动引入 System / System.IO / System.Linq / System.Threading.Tasks 等常用命名空间 -->
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>AmllMvStudio</AssemblyName>
-    <ApplicationIcon />
+    <Version>0.2.0</Version>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    <FileVersion>0.2.0.0</FileVersion>
+    <Product>AMLL Lyric MV Studio</Product>
+    <Title>AMLL Lyric MV Studio</Title>
+    <AssemblyTitle>AMLL Lyric MV Studio</AssemblyTitle>
+    <FileDescription>AMLL Lyric MV Studio</FileDescription>
+    <Description>Create lyric music videos with Apple Music Like Lyrics visuals.</Description>
+    <Authors>Cplay00</Authors>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,66 +36,89 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Assets\app.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\installer\LICENSE.txt" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\installer\NOTICE.txt" Link="NOTICE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\installer\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\dist\**\*" Link="runtime\content\dist\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\scripts\**\*" Link="runtime\content\scripts\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\scripts\render-mv.mjs;..\scripts\render-lib.mjs" Link="runtime\content\scripts\%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\package.json;..\package-lock.json" Link="runtime\content\%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\index.html" Link="runtime\content\index.html"
+    <!-- Locked Vite 7 / Playwright runtime closure for the published Windows x64 renderer. -->
+    <None Include="..\node_modules\playwright-core\**\*" Link="runtime\content\node_modules\playwright-core\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\src\**\*" Link="runtime\content\src\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\node_modules\vite\**\*" Link="runtime\content\node_modules\vite\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\public\**\*" Link="runtime\content\public\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\node_modules\fdir\**\*" Link="runtime\content\node_modules\fdir\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\vite.config.ts;..\tsconfig.json" Link="runtime\content\%(Filename)%(Extension)"
+    <None Include="..\node_modules\picomatch\**\*" Link="runtime\content\node_modules\picomatch\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\playwright-core\index.js;..\node_modules\playwright-core\index.mjs;..\node_modules\playwright-core\package.json;..\node_modules\playwright-core\browsers.json"
-          Link="runtime\content\node_modules\playwright-core\%(Filename)%(Extension)"
+    <None Include="..\node_modules\tinyglobby\**\*" Link="runtime\content\node_modules\tinyglobby\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\playwright-core\lib\server\**\*"
-          Link="runtime\content\node_modules\playwright-core\lib\server\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\node_modules\rollup\**\*" Link="runtime\content\node_modules\rollup\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\playwright-core\lib\*.js;..\node_modules\playwright-core\lib\*.wasm;..\node_modules\playwright-core\lib\*.LICENSE;..\node_modules\playwright-core\lib\xdg-open"
-          Link="runtime\content\node_modules\playwright-core\lib\%(Filename)%(Extension)"
+    <None Include="..\node_modules\@rollup\rollup-win32-x64-msvc\**\*" Link="runtime\content\node_modules\@rollup\rollup-win32-x64-msvc\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\vite\**\*"
-          Link="runtime\content\node_modules\vite\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\node_modules\@types\estree\**\*" Link="runtime\content\node_modules\@types\estree\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\installer\staging\runtime\ffmpeg\ffmpeg.exe"
-          Link="runtime\ffmpeg\ffmpeg.exe"
-          CopyToPublishDirectory="PreserveNewest"
-          Condition="Exists('..\installer\staging\runtime\ffmpeg\ffmpeg.exe')" />
-    <None Include="..\node_modules\rollup\**\*"
-          Link="runtime\content\node_modules\rollup\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\node_modules\esbuild\**\*" Link="runtime\content\node_modules\esbuild\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\@rollup\**\*"
-          Link="runtime\content\node_modules\@rollup\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\node_modules\@esbuild\win32-x64\**\*" Link="runtime\content\node_modules\@esbuild\win32-x64\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\esbuild\**\*"
-          Link="runtime\content\node_modules\esbuild\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\node_modules\postcss\**\*" Link="runtime\content\node_modules\postcss\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\@esbuild\**\*"
-          Link="runtime\content\node_modules\@esbuild\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\node_modules\picocolors\**\*" Link="runtime\content\node_modules\picocolors\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\postcss\**\*"
-          Link="runtime\content\node_modules\postcss\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\node_modules\nanoid\**\*" Link="runtime\content\node_modules\nanoid\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\picocolors\**\*"
-          Link="runtime\content\node_modules\picocolors\%(RecursiveDir)%(Filename)%(Extension)"
+    <None Include="..\node_modules\source-map-js\**\*" Link="runtime\content\node_modules\source-map-js\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\resolve\**\*"
-          Link="runtime\content\node_modules\resolve\%(RecursiveDir)%(Filename)%(Extension)"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="..\node_modules\fsevents\**\*"
-          Link="runtime\content\node_modules\fsevents\%(RecursiveDir)%(Filename)%(Extension)"
-          CopyToPublishDirectory="PreserveNewest" />
-    <None Include="$(ProgramFiles)\nodejs\node.exe"
-          Link="runtime\node\node.exe"
-          CopyToPublishDirectory="PreserveNewest"
-          Condition="Exists('$(ProgramFiles)\nodejs\node.exe')" />
+    <None Include="..\installer\staging\runtime\ffmpeg\ffmpeg.exe" Link="runtime\ffmpeg\ffmpeg.exe"
+          CopyToPublishDirectory="PreserveNewest" Condition="Exists('..\installer\staging\runtime\ffmpeg\ffmpeg.exe')" />
+    <None Include="$(ProgramFiles)\nodejs\node.exe" Link="runtime\node\node.exe"
+          CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(ProgramFiles)\nodejs\node.exe')" />
   </ItemGroup>
+
+  <UsingTask TaskName="PatchPublishedRenderer"
+             TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <FilePath ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Text" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        const string sourceRoot = "const PROJECT_ROOT = resolve(dirname(SCRIPT_PATH), \"..\");";
+        const string publishRoot = "const PROJECT_ROOT = resolve(dirname(SCRIPT_PATH), \"..\", \"dist\");";
+        const string serverRoot = "      root: PROJECT_ROOT,";
+        const string publishServerRoot = "      root: PROJECT_ROOT,\n      appType: \"spa\",\n      configFile: false,";
+        string text = File.ReadAllText(FilePath);
+        if (text.IndexOf(sourceRoot, StringComparison.Ordinal) < 0 ||
+            text.IndexOf(sourceRoot, StringComparison.Ordinal) != text.LastIndexOf(sourceRoot, StringComparison.Ordinal) ||
+            text.IndexOf(serverRoot, StringComparison.Ordinal) < 0 ||
+            text.IndexOf(serverRoot, StringComparison.Ordinal) != text.LastIndexOf(serverRoot, StringComparison.Ordinal))
+        {
+          throw new InvalidOperationException("Published renderer patch markers are missing or ambiguous.");
+        }
+        text = text.Replace(sourceRoot, publishRoot)
+                   .Replace(serverRoot, publishServerRoot);
+        File.WriteAllText(FilePath, text, new UTF8Encoding(false));
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="PatchRendererForPublishedDist" AfterTargets="Publish">
+    <PropertyGroup>
+      <_PublishedRenderer>$(PublishDir)runtime\content\scripts\render-mv.mjs</_PublishedRenderer>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_PublishedRenderer)')" Text="Published renderer was not found: $(_PublishedRenderer)" />
+    <PatchPublishedRenderer FilePath="$(_PublishedRenderer)" />
+  </Target>
 
   <Target Name="CopyApplicationPriToPublish" AfterTargets="Publish">
     <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri"

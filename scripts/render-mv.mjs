@@ -19,12 +19,14 @@ import {
   buildFfmpegArgs,
   chooseEncoder,
   formatConcatTimeline,
+  holdFirstFrameUntil,
   normalizeCanonicalOptions,
   normalizeCapturedFrames,
   parseEncoderListing,
   parseEncoderPresetHelp,
   parseFfmpegMajorVersion,
   resolveEncoderPreset,
+  resolveRenderTiming,
   resolveRuntimeTools,
   validateContainer,
 } from "./render-lib.mjs";
@@ -41,7 +43,7 @@ const PRESETS = Object.freeze({
 });
 const VALUE_FLAGS = new Set([
   "audio", "lyric", "cover", "out", "preset", "width", "height", "fps", "flow-speed",
-  "render-scale", "crf", "quality", "tail", "port", "browser", "ffmpeg", "encoder",
+  "render-scale", "crf", "quality", "head", "tail", "port", "browser", "ffmpeg", "encoder",
   "encoder-preset", "audio-codec", "audio-bitrate", "browser-gpu", "title", "artist", "album",
   "font-family", "font-scale", "font-weight", "secondary-mode", "show-song-info", "show-artist",
   "show-album", "show-artwork", "show-controls", "artwork-scale", "lyric-align", "lyric-offset",
@@ -69,6 +71,7 @@ Input/output:
   --preset <id>               1080p|1440p|4k|vertical|square (default 1080p)
   --width/--height <px>       Override preset dimensions (16..8192)
   --fps <n>                   Output FPS (1..240, default 60)
+  --head <ms>                 Hold the first frame before audio starts (default 0)
   --tail <ms>                 Retain ending video/audio padding (default 1200)
   --duration <ms>             Limit source duration (useful for smoke renders)
 
@@ -98,7 +101,7 @@ Browser/query:
 Compatibility: --crf, --keep-frames, --progress-json, --browser, --ffmpeg and --port are retained.
 `;
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const values = {};
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -142,7 +145,7 @@ function boolArg(args, name) {
   return args[name] === "true";
 }
 
-function parseOptions(argv) {
+export function parseOptions(argv) {
   const args = parseArgs(argv);
   if (args.help) return { action: "help", args };
   const runtimeTools = resolveRuntimeTools({
@@ -183,6 +186,7 @@ function parseOptions(argv) {
     fps: numberArg(args, "fps", 60, 1, 240),
     flowSpeed: numberArg(args, "flow-speed", 2, 0, 5),
     renderScale: numberArg(args, "render-scale", 1, 0.25, 1),
+    headMs: numberArg(args, "head", 0, 0, 600_000, true),
     tailMs: numberArg(args, "tail", 1200, 0, 600_000, true),
     durationLimitMs,
     port: numberArg(args, "port", 5273, 1, 65535, true),
@@ -215,8 +219,9 @@ function parseOptions(argv) {
   assertCopyTimingCompatible({
     audioCodec: options.audioCodec,
     durationLimitMs: options.durationLimitMs,
+    headMs: options.headMs,
     tailMs: options.tailMs,
-    audioOffsetMs: 0,
+    audioOffsetMs: options.headMs,
   });
   return options;
 }
@@ -241,22 +246,34 @@ function runCaptured(command, commandArgs, label, options = {}) {
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let timedOut = false;
+    let forceTimer = null;
     const finish = (callback) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (forceTimer !== null) clearTimeout(forceTimer);
+      // settled 后立即摘除流监听，避免探测结束后仍累积 data 事件
+      child.stdout.removeAllListeners();
+      child.stderr.removeAllListeners();
       callback();
     };
+    const rejectTimeout = () => finish(() => rejectPromise(new Error(
+      `${label} 超时（${timeoutMs} ms）。${stderr ? `\n${stderr.slice(-2000)}` : ""}`)));
     const timer = setTimeout(() => {
+      timedOut = true;
       try { child.kill(); } catch { /* already exited */ }
-      finish(() => rejectPromise(new Error(`${label} 超时（${timeoutMs} ms）。`)));
+      // kill 后若收不到 close 仍会悬挂：兜底定时强制按超时结算
+      forceTimer = setTimeout(rejectTimeout, 5_000);
     }, timeoutMs);
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.on("error", (error) => finish(() => rejectPromise(new Error(`${label} 无法启动：${error.message}`))));
-    child.on("close", (code) => finish(() => acceptedCodes.includes(code)
-      ? resolvePromise({ stdout, stderr })
-      : rejectPromise(new Error(`${label} 失败（退出码 ${code}）：\n${stderr.slice(-4000)}`))));
+    child.on("close", (code) => finish(() => timedOut
+      ? rejectTimeout()
+      : acceptedCodes.includes(code)
+        ? resolvePromise({ stdout, stderr })
+        : rejectPromise(new Error(`${label} 失败（退出码 ${code}）：\n${stderr.slice(-4000)}`))));
   });
 }
 
@@ -614,9 +631,20 @@ async function render(options, ffmpegProbe) {
       return { durationMs: (audio?.duration ?? 0) * 1000, stageRect: rect ? { width: rect.width, height: rect.height } : null, lyricLines: document.querySelectorAll(".FmKaba_lyricLineWrapper").length };
     });
     if (!Number.isFinite(meta.durationMs) || meta.durationMs <= 0) throw new Error("无法读取有效音频时长。");
-    const sourceDurationMs = options.durationLimitMs === null ? meta.durationMs : Math.min(meta.durationMs, options.durationLimitMs);
-    const expectedDurationMs = sourceDurationMs + options.tailMs;
-    emitProgress("ready", { durationMs: Math.round(expectedDurationMs), sourceDurationMs: Math.round(sourceDurationMs), lyricLines: meta.lyricLines });
+    const timing = resolveRenderTiming({
+      audioDurationMs: meta.durationMs,
+      durationLimitMs: options.durationLimitMs,
+      headMs: options.headMs,
+      tailMs: options.tailMs,
+    });
+    const { sourceDurationMs, totalDurationMs: expectedDurationMs } = timing;
+    emitProgress("ready", {
+      durationMs: Math.round(expectedDurationMs),
+      headMs: options.headMs,
+      sourceDurationMs: Math.round(sourceDurationMs),
+      tailMs: options.tailMs,
+      lyricLines: meta.lyricLines,
+    });
     log(`舞台就绪 ${meta.stageRect.width}×${meta.stageRect.height}，计划时长 ${(expectedDurationMs / 1000).toFixed(3)}s。`);
 
     cdp = await context.newCDPSession(page);
@@ -624,28 +652,63 @@ async function render(options, ffmpegProbe) {
     let frameIndex = 0;
     let acceptingFrames = false;
     let frameWriteError = null;
+    let firstAcceptedFramePromise;
+    const firstAcceptedFrame = new Promise((resolveFirstFrame) => { firstAcceptedFramePromise = resolveFirstFrame; });
     let writeChain = Promise.resolve();
     cdp.on("Page.screencastFrame", (frame) => {
       const receivedAtMs = performance.timeOrigin + performance.now();
+      const timestampMs = Number(frame.metadata?.timestamp) * 1000;
       const ack = () => { void cdp.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch(() => undefined); };
       if (!acceptingFrames) {
         ack();
         return;
       }
       const index = frameIndex++;
+      if (index === 0) {
+        acceptingFrames = false;
+        firstAcceptedFramePromise({ timestampMs, receivedAtMs });
+      }
       // 写完再 ack：Chromium screencast 借未 ack 的帧自然降速，慢盘下不会无限积压内存
       writeChain = writeChain.then(() => {
         try {
           writeFileSync(join(framesDir, `f${String(index).padStart(8, "0")}.jpg`), Buffer.from(frame.data, "base64"));
-          captured.push({ index, timestampMs: Number(frame.metadata?.timestamp) * 1000, receivedAtMs });
+          captured.push({ index, timestampMs, receivedAtMs });
         } catch (error) {
           if (!frameWriteError) frameWriteError = error;
         }
       }).finally(ack);
     });
-    await cdp.send("Page.startScreencast", { format: "jpeg", quality: 95, maxWidth: options.width, maxHeight: options.height, everyNthFrame: 1 });
     acceptingFrames = true;
+    await cdp.send("Page.startScreencast", { format: "jpeg", quality: 95, maxWidth: options.width, maxHeight: options.height, everyNthFrame: 1 });
+    const firstAccepted = await Promise.race([
+      firstAcceptedFrame,
+      page.waitForTimeout(10_000).then(() => { throw new Error("等待首个捕获帧超时。"); }),
+    ]);
+    const captureOriginEpochMs = Number.isFinite(firstAccepted.timestampMs)
+      ? firstAccepted.timestampMs
+      : firstAccepted.receivedAtMs;
     const captureStartedAtMs = performance.now();
+    await page.evaluate(() => {
+      const audio = document.querySelector("audio");
+      if (!audio) throw new Error("音频元素不存在。");
+      audio.pause();
+      audio.currentTime = 0;
+      if (window.__amllMv) {
+        window.__amllMv.audioStartedAt = null;
+        window.__amllMv.audioEndedAt = null;
+      }
+    });
+    if (options.headMs > 0) {
+      await page.waitForTimeout(options.headMs);
+      const headState = await page.evaluate(() => {
+        const audio = document.querySelector("audio");
+        return audio ? { paused: audio.paused, currentTime: audio.currentTime } : null;
+      });
+      if (!headState?.paused || Math.abs(headState.currentTime) > 0.001) {
+        throw new Error(`片头保持期间音频状态异常：${JSON.stringify(headState)}`);
+      }
+    }
+    acceptingFrames = true;
     const audioStartedEpochMs = await page.evaluate(async () => {
       const audio = document.querySelector("audio");
       if (!audio) throw new Error("音频元素不存在。");
@@ -658,7 +721,7 @@ async function render(options, ffmpegProbe) {
       if (window.__amllMv) window.__amllMv.audioStartedAt = startedAt;
       return startedAt;
     });
-    const captureDeadlineMs = sourceDurationMs + options.tailMs;
+    const captureDeadlineMs = expectedDurationMs;
     const progressTimer = setInterval(() => {
       const elapsedMs = Math.min(performance.now() - captureStartedAtMs, captureDeadlineMs);
       // 取整为整数毫秒：GUI 侧按 JSON 整数解析，浮点会导致已耗时恒显示 0
@@ -697,18 +760,27 @@ async function render(options, ffmpegProbe) {
     // Node 收帧时刻含 IPC 延迟，用它会把音画偏移低估一个传输延迟。
     // 若旧内核缺少 CDP 时间戳，normalizeCapturedFrames 会回退到收帧时刻，此时偏差退化为旧行为。
     const firstCaptureMs = normalizedCaptured[0].timestampMs;
-    let audioOffsetMs = audioStartedEpochMs - firstCaptureMs;
-    if (!Number.isFinite(audioOffsetMs) || Math.abs(audioOffsetMs) > 3000) audioOffsetMs = 0;
+    const measuredAudioOffsetMs = audioStartedEpochMs - firstCaptureMs;
+    const plannedAudioStartEpochMs = captureOriginEpochMs + options.headMs;
+    const audioStartDriftMs = audioStartedEpochMs - plannedAudioStartEpochMs;
+    // FFmpeg 始终使用用户计划的 head；视频 CFR 原点反向锚定到实测 playing 时刻，
+    // 使输出时间 head 精确对应页面音频时间 0，避免浏览器 play() 调度抖动进入成片。
+    const timelineOriginEpochMs = audioStartedEpochMs - options.headMs;
+    const audioOffsetMs = options.headMs;
+    const timelineCaptured = holdFirstFrameUntil(normalizedCaptured, audioStartedEpochMs);
     assertCopyTimingCompatible({
       audioCodec: options.audioCodec,
       durationLimitMs: options.durationLimitMs,
+      headMs: options.headMs,
       tailMs: options.tailMs,
       audioOffsetMs,
     });
-    const outputDurationMs = Math.max(1, expectedDurationMs + audioOffsetMs);
-    const timeline = buildCfrTimeline(normalizedCaptured, options.fps, outputDurationMs);
+    const outputDurationMs = Math.max(1, expectedDurationMs);
+    const timeline = buildCfrTimeline(timelineCaptured, options.fps, outputDurationMs, {
+      startTimestampMs: timelineOriginEpochMs,
+    });
     writeFileSync(join(framesDir, "frames.txt"), formatConcatTimeline(timeline.selectedIndices, options.fps), "utf8");
-    log(`捕获 ${captured.length} 帧，CFR ${timeline.totalFrames} 帧，音频相对首帧 ${audioOffsetMs.toFixed(1)}ms。`);
+    log(`捕获 ${captured.length} 帧，CFR ${timeline.totalFrames} 帧，音频偏移 ${audioOffsetMs.toFixed(1)}ms（首个有效捕获帧 ${firstCaptureMs - captureOriginEpochMs >= 0 ? "+" : ""}${(firstCaptureMs - captureOriginEpochMs).toFixed(1)}ms，实测播放漂移 ${Number.isFinite(audioStartDriftMs) ? `${audioStartDriftMs >= 0 ? "+" : ""}${audioStartDriftMs.toFixed(1)}ms` : "不可用"}，首帧相对启动 ${Number.isFinite(measuredAudioOffsetMs) ? measuredAudioOffsetMs.toFixed(1) : "不可用"}ms；CFR 原点按实测 playing 反向校准，FFmpeg 严格采用计划 offset）。`);
 
     const outputPath = options.outputPath;
     mkdirSync(dirname(outputPath), { recursive: true });
@@ -720,7 +792,7 @@ async function render(options, ffmpegProbe) {
       );
       const ffmpegArgs = buildFfmpegArgs({
         audioPath: options.audioPath, outputPath, fps: options.fps, durationMs: timeline.durationMs,
-        audioOffsetMs, encoder: selectedEncoder, encoderPreset,
+        audioOffsetMs, headMs: options.headMs, encoder: selectedEncoder, encoderPreset,
         quality: options.quality, audioCodec: options.audioCodec, audioBitrate: options.audioBitrate,
         ffmpegMajorVersion: ffmpegProbe.majorVersion,
       });

@@ -18,17 +18,32 @@ public sealed partial class PreviewPage : UserControl
     private static readonly HashSet<string> CoverExtensions = new(StringComparer.OrdinalIgnoreCase)
         { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
 
+    private const string NavigationGenerationKey = "__amllPreviewGeneration";
+    private const int StartupDiagnosticAttempts = 30;
+    private static readonly TimeSpan ReadinessRecoveryInterval = TimeSpan.FromSeconds(2);
+
     private AppState? _state;
     private LocalAssetServer? _server;
     private readonly DispatcherTimer _pollTimer;
     private readonly DispatcherTimer _patchTimer;
+    private readonly DispatcherTimer _assetReloadTimer;
     private bool _webViewReady;
     private bool _pageReady;
     private bool _isLoaded;
+    private bool _isActive = true;
+    private bool _assetReloadPending = true;
+    private bool _visualPatchPending;
     private bool _polling;
     private bool _patching;
     private bool _updatingSeek;
     private bool _initialized;
+    private long _visualPatchRevision;
+    private long _navigationGeneration;
+    private long _activeNavigationGeneration;
+    private ulong _activeNavigationId;
+    private long _activeNavigationVisualRevision = -1;
+    private string? _reportedReadinessError;
+    private DateTimeOffset _nextReadinessRecoveryAt = DateTimeOffset.MaxValue;
 
     public PreviewPage()
     {
@@ -37,11 +52,52 @@ public sealed partial class PreviewPage : UserControl
         _pollTimer.Tick += OnPollTick;
         _patchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
         _patchTimer.Tick += OnPatchTick;
+        _assetReloadTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        _assetReloadTimer.Tick += OnAssetReloadTick;
+        RegisterPropertyChangedCallback(VisibilityProperty, (_, _) => SetActive(Visibility == Visibility.Visible));
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
 
     public nint WindowHandle { get; set; }
+
+    public void SetActive(bool active)
+    {
+        _isActive = active;
+        if (!active)
+        {
+            StopRefreshTimers();
+            return;
+        }
+        ProcessPendingRefresh();
+        UpdatePollTimer();
+    }
+
+    private bool CanProcessRefresh => _isLoaded && _isActive;
+    private bool CanUseReadyPage => CanProcessRefresh && _webViewReady && _pageReady;
+
+    private void StopRefreshTimers()
+    {
+        _pollTimer.Stop();
+        _patchTimer.Stop();
+        _assetReloadTimer.Stop();
+    }
+
+    private void UpdatePollTimer()
+    {
+        if (CanProcessRefresh && _webViewReady) _pollTimer.Start();
+        else _pollTimer.Stop();
+    }
+
+    public void RequestAssetRefresh()
+    {
+        _assetReloadPending = true;
+        if (_isLoaded && _isActive)
+        {
+            _assetReloadTimer.Stop();
+            _assetReloadTimer.Start();
+        }
+    }
 
     public void Initialize(AppState state, LocalAssetServer server)
     {
@@ -56,28 +112,55 @@ public sealed partial class PreviewPage : UserControl
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _isLoaded = true;
-        if (_webViewReady) _pollTimer.Start();
+        ProcessPendingRefresh();
+        UpdatePollTimer();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _isLoaded = false;
-        _pollTimer.Stop();
+        StopRefreshTimers();
+    }
+
+    private void ProcessPendingRefresh()
+    {
+        if (!CanProcessRefresh) return;
+        if (_assetReloadPending)
+        {
+            if (!_webViewReady) return;
+            _assetReloadTimer.Stop();
+            _assetReloadTimer.Start();
+            return;
+        }
+        ScheduleVisualPatch();
+    }
+
+    private void ScheduleVisualPatch()
+    {
+        if (!_visualPatchPending || !CanUseReadyPage) return;
         _patchTimer.Stop();
+        _patchTimer.Start();
     }
 
     private void OnStatePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(AppState.ProjectRoot) or nameof(AppState.HasAudio)) return;
-        if (!_isLoaded) return;
         if (IsAssetProperty(e.PropertyName))
         {
-            ReloadPreview();
+            RequestAssetRefresh();
             return;
         }
         if (!IsVisualProperty(e.PropertyName)) return;
-        _patchTimer.Stop();
-        _patchTimer.Start();
+        _visualPatchRevision++;
+        _visualPatchPending = true;
+        ScheduleVisualPatch();
+    }
+
+    private void OnAssetReloadTick(object? sender, object e)
+    {
+        _assetReloadTimer.Stop();
+        if (!CanProcessRefresh || !_webViewReady) return;
+        ReloadPreview();
     }
 
     private static bool IsAssetProperty(string? propertyName) => propertyName is
@@ -97,15 +180,58 @@ public sealed partial class PreviewPage : UserControl
     private async void OnPatchTick(object? sender, object e)
     {
         _patchTimer.Stop();
-        if (_patching || !_pageReady || _state is null) return;
+        if (_patching || !CanUseReadyPage || _state is null)
+        {
+            _visualPatchPending = true;
+            return;
+        }
+
+        long patchRevision = _visualPatchRevision;
+        long navigationGeneration = _activeNavigationGeneration;
+        ulong navigationId = _activeNavigationId;
         _patching = true;
         try
         {
-            string? result = await EvalStringAsync(PreviewScripts.ApplyOptions(_state));
-            if (result is null || !result.Contains("\"ok\":true", StringComparison.Ordinal))
-                ShowDiagnostic("预览桥接尚未启动，实时设置未能应用。请手动刷新预览。");
+            string? result = await EvalStringAsync(
+                PreviewScripts.ApplyOptions(_state), navigationGeneration, navigationId);
+            if (!IsCurrentNavigation(navigationGeneration, navigationId))
+            {
+                _visualPatchPending = _visualPatchRevision > _activeNavigationVisualRevision;
+                return;
+            }
+
+            bool applied = result is not null && result.Contains("\"ok\":true", StringComparison.Ordinal);
+            if (!applied)
+            {
+                EnterReadinessRecovery(
+                    navigationGeneration,
+                    navigationId,
+                    "预览桥接尚未启动，实时设置未能应用。页面就绪后将自动重试。");
+                return;
+            }
+
+            if (patchRevision != _visualPatchRevision)
+            {
+                _visualPatchPending = true;
+                return;
+            }
+            _visualPatchPending = false;
         }
-        finally { _patching = false; }
+        finally
+        {
+            _patching = false;
+            ScheduleVisualPatch();
+        }
+    }
+
+    private void EnterReadinessRecovery(long navigationGeneration, ulong navigationId, string message)
+    {
+        if (!IsCurrentNavigation(navigationGeneration, navigationId)) return;
+        _pageReady = false;
+        _visualPatchPending = true;
+        _patchTimer.Stop();
+        _nextReadinessRecoveryAt = DateTimeOffset.UtcNow + ReadinessRecoveryInterval;
+        ShowDiagnostic(message);
     }
 
     private async Task EnsureWebViewAsync()
@@ -139,8 +265,8 @@ public sealed partial class PreviewPage : UserControl
                 DispatcherQueue.TryEnqueue(() => ShowError($"预览进程异常：{args.ProcessFailedKind}"));
             _webViewReady = true;
             LoadingRing.IsActive = false;
-            if (_isLoaded) _pollTimer.Start();
-            ReloadPreview();
+            UpdatePollTimer();
+            ProcessPendingRefresh();
         }
         catch (Exception ex)
         {
@@ -168,7 +294,8 @@ public sealed partial class PreviewPage : UserControl
 
     private void ReloadPreview()
     {
-        if (!_webViewReady || _state is null || _server is null) return;
+        if (!CanProcessRefresh || !_webViewReady || _state is null || _server is null) return;
+        _assetReloadPending = false;
         _patchTimer.Stop();
         _pageReady = false;
         AssetSummaryText.Text = BuildSummary();
@@ -189,7 +316,12 @@ public sealed partial class PreviewPage : UserControl
             return;
         }
 
-        var query = BuildPreviewQuery(_state, _server);
+        var query = BuildPreviewQuery(_state, _server).ToList();
+        long navigationGeneration = ++_navigationGeneration;
+        query.Add($"{NavigationGenerationKey}={navigationGeneration}");
+        _activeNavigationGeneration = navigationGeneration;
+        _activeNavigationId = 0;
+        _activeNavigationVisualRevision = _visualPatchRevision;
         Stage.Visibility = Visibility.Visible;
         EmptyHint.Visibility = Visibility.Collapsed;
         LoadingRing.IsActive = true;
@@ -209,16 +341,16 @@ public sealed partial class PreviewPage : UserControl
         return string.IsNullOrWhiteSpace(audio) ? "尚未载入素材" : $"{audio} · {lyric} · {cover}";
     }
 
-    private async Task<string?> EvalStringAsync(string script)
+    private async Task<string?> EvalStringAsync(
+        string script, long navigationGeneration, ulong navigationId)
     {
-        if (!_webViewReady || Stage.CoreWebView2 is null) return null;
+        if (!_webViewReady || Stage.CoreWebView2 is null ||
+            !IsCurrentNavigation(navigationGeneration, navigationId)) return null;
         try
         {
             string raw = await Stage.ExecuteScriptAsync(script);
-            if (string.IsNullOrEmpty(raw) || raw == "null") return null;
-            using var doc = JsonDocument.Parse(raw);
-            return doc.RootElement.ValueKind == JsonValueKind.String
-                ? doc.RootElement.GetString() : doc.RootElement.ToString();
+            if (!IsCurrentNavigation(navigationGeneration, navigationId)) return null;
+            return PreviewScripts.DecodeExecuteScriptResult(raw);
         }
         catch (Exception ex) when (ex is InvalidOperationException or JsonException)
         {
@@ -229,23 +361,36 @@ public sealed partial class PreviewPage : UserControl
 
     private async void OnPollTick(object? sender, object e)
     {
-        if (_polling) return;
+        if (_polling || !CanProcessRefresh) return;
         _polling = true;
-        try { await PollAsync(); }
+        try
+        {
+            if (CanProcessRefresh) await PollAsync();
+        }
         finally { _polling = false; }
     }
 
     private async Task PollAsync()
     {
+        long navigationGeneration = _activeNavigationGeneration;
+        ulong navigationId = _activeNavigationId;
+        if (!_pageReady)
+        {
+            await TryRecoverPageReadinessAsync(navigationGeneration, navigationId);
+            if (!IsCurrentNavigation(navigationGeneration, navigationId) || !_pageReady) return;
+        }
+
         string? json = await EvalStringAsync(
             "(function(){const a=document.querySelector('audio');if(!a)return JSON.stringify({ready:false});" +
-            "return JSON.stringify({ready:true,t:a.currentTime,d:Number.isFinite(a.duration)?a.duration:0,p:a.paused});})()");
-        if (json is null) return;
+            "return JSON.stringify({ready:true,t:a.currentTime,d:Number.isFinite(a.duration)?a.duration:0,p:a.paused});})()",
+            navigationGeneration, navigationId);
+        if (!IsCurrentNavigation(navigationGeneration, navigationId) || json is null) return;
         try
         {
             using var doc = JsonDocument.Parse(json);
             JsonElement root = doc.RootElement;
-            if (!root.TryGetProperty("ready", out JsonElement ready) || !ready.GetBoolean()) return;
+            if (!IsCurrentNavigation(navigationGeneration, navigationId) ||
+                !CanProcessRefresh || !root.TryGetProperty("ready", out JsonElement ready) || !ready.GetBoolean()) return;
             // TryGetProperty + 默认值：字段缺失不应经 async void 落到全局 UnhandledException
             double current = root.TryGetProperty("t", out JsonElement t) && t.ValueKind == JsonValueKind.Number ? t.GetDouble() : 0;
             double duration = root.TryGetProperty("d", out JsonElement d) && d.ValueKind == JsonValueKind.Number ? d.GetDouble() : 0;
@@ -279,14 +424,51 @@ public sealed partial class PreviewPage : UserControl
             args.Cancel = true;
             return;
         }
+
+        if (!TryGetNavigationGeneration(args.Uri, out long navigationGeneration))
+        {
+            args.Cancel = true;
+            ShowDiagnostic("预览阻止了非预期的本地导航。");
+            return;
+        }
+
+        if (navigationGeneration < _activeNavigationGeneration)
+        {
+            args.Cancel = true;
+            return;
+        }
+        _activeNavigationGeneration = navigationGeneration;
+        _activeNavigationId = args.NavigationId;
         _pageReady = false;
+        _reportedReadinessError = null;
+        _nextReadinessRecoveryAt = DateTimeOffset.MaxValue;
         BuildHintText.Visibility = Visibility.Collapsed;
         EmptyHint.Visibility = Visibility.Collapsed;
         LoadingRing.IsActive = true;
     }
 
+    private bool TryGetNavigationGeneration(string? uri, out long generation)
+    {
+        generation = 0;
+        if (!Uri.TryCreate(uri, UriKind.Absolute, out Uri? target)) return false;
+        foreach (string item in target.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] pair = item.Split('=', 2);
+            if (pair.Length == 2 && pair[0] == NavigationGenerationKey &&
+                long.TryParse(Uri.UnescapeDataString(pair[1]), out generation)) return true;
+        }
+        return false;
+    }
+
+    private bool IsCurrentNavigation(long navigationGeneration, ulong navigationId) =>
+        navigationGeneration == _activeNavigationGeneration && navigationId == _activeNavigationId;
+
     private async void OnNavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
+        long navigationGeneration = _activeNavigationGeneration;
+        ulong navigationId = args.NavigationId;
+        if (!IsCurrentNavigation(navigationGeneration, navigationId)) return;
+
         LoadingRing.IsActive = false;
         if (!args.IsSuccess)
         {
@@ -294,47 +476,142 @@ public sealed partial class PreviewPage : UserControl
             return;
         }
 
-        string? diagnostic = await EvalStringAsync(PreviewScripts.Diagnose());
-        if (diagnostic is null)
+        JsonElement lastDiagnostic = default;
+        bool hasDiagnostic = false;
+        for (int attempt = 0; attempt < StartupDiagnosticAttempts; attempt++)
+        {
+            if (!IsCurrentNavigation(navigationGeneration, navigationId)) return;
+            string? diagnostic = await EvalStringAsync(
+                PreviewScripts.Diagnose(), navigationGeneration, navigationId);
+            if (!IsCurrentNavigation(navigationGeneration, navigationId)) return;
+            if (diagnostic is not null)
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(diagnostic);
+                    lastDiagnostic = document.RootElement.Clone();
+                    hasDiagnostic = true;
+                    string? error = PreviewReadiness.GetError(lastDiagnostic);
+                    if (error is not null)
+                    {
+                        _reportedReadinessError = error;
+                        ShowDiagnostic($"预览应用启动失败：{error}");
+                        _nextReadinessRecoveryAt = DateTimeOffset.UtcNow + ReadinessRecoveryInterval;
+                        return;
+                    }
+                    if (PreviewReadiness.IsReady(lastDiagnostic))
+                    {
+                        MarkPageReady(navigationGeneration, navigationId);
+                        return;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    ShowDiagnostic($"预览启动诊断返回无效数据：{ex.Message}");
+                    _nextReadinessRecoveryAt = DateTimeOffset.UtcNow + ReadinessRecoveryInterval;
+                    return;
+                }
+            }
+            if (attempt + 1 < StartupDiagnosticAttempts)
+            {
+                await Task.Delay(PreviewReadiness.GetRetryDelay(attempt));
+                if (!IsCurrentNavigation(navigationGeneration, navigationId)) return;
+            }
+        }
+
+        if (!IsCurrentNavigation(navigationGeneration, navigationId)) return;
+        if (!hasDiagnostic)
         {
             ShowDiagnostic("预览页面已加载，但无法执行诊断脚本。请检查 WebView2 运行时。");
+            _nextReadinessRecoveryAt = DateTimeOffset.UtcNow + ReadinessRecoveryInterval;
             return;
         }
+
+        bool appStarted = HasPreviewStarted(lastDiagnostic);
+        ShowDiagnostic(appStarted
+            ? $"预览应用已启动，但舞台尚未就绪：{PreviewReadiness.Describe(lastDiagnostic)}"
+            : "预览页面已载入，但 React 或实时桥接未启动。请确认 dist 构建产物完整后刷新。");
+        if (IsCurrentNavigation(navigationGeneration, navigationId))
+            _nextReadinessRecoveryAt = DateTimeOffset.UtcNow + ReadinessRecoveryInterval;
+    }
+
+    private static bool HasPreviewStarted(JsonElement diagnostic) =>
+        HasTrueProperty(diagnostic, "rendered") &&
+        HasTrueProperty(diagnostic, "bridge") &&
+        HasTrueProperty(diagnostic, "setOptions");
+
+    private static bool HasTrueProperty(JsonElement root, string propertyName) =>
+        root.TryGetProperty(propertyName, out JsonElement value) && value.ValueKind == JsonValueKind.True;
+
+    private async Task TryRecoverPageReadinessAsync(long navigationGeneration, ulong navigationId)
+    {
+        if (!IsCurrentNavigation(navigationGeneration, navigationId) ||
+            DateTimeOffset.UtcNow < _nextReadinessRecoveryAt) return;
+        _nextReadinessRecoveryAt = DateTimeOffset.UtcNow + ReadinessRecoveryInterval;
+        string? diagnostic = await EvalStringAsync(
+            PreviewScripts.Diagnose(), navigationGeneration, navigationId);
+        if (!IsCurrentNavigation(navigationGeneration, navigationId) || diagnostic is null) return;
+
         try
         {
             using var document = JsonDocument.Parse(diagnostic);
-            JsonElement root = document.RootElement;
-            bool rendered = root.TryGetProperty("rendered", out JsonElement renderedValue) && renderedValue.GetBoolean();
-            bool bridge = root.TryGetProperty("bridge", out JsonElement bridgeValue) && bridgeValue.GetBoolean();
-            bool setOptions = root.TryGetProperty("setOptions", out JsonElement setterValue) && setterValue.GetBoolean();
-            string? error = root.TryGetProperty("error", out JsonElement errorValue) && errorValue.ValueKind == JsonValueKind.String
-                ? errorValue.GetString() : null;
-            if (!rendered || !bridge || !setOptions)
+            JsonElement readiness = document.RootElement;
+            string? error = PreviewReadiness.GetError(readiness);
+            if (error is not null)
             {
-                ShowDiagnostic(error is not null
-                    ? $"预览应用启动失败：{error}"
-                    : "预览页面已载入，但 React 或实时桥接未启动。请确认 dist 构建产物完整后刷新。");
+                if (!string.Equals(error, _reportedReadinessError, StringComparison.Ordinal))
+                {
+                    _reportedReadinessError = error;
+                    ShowDiagnostic($"预览应用启动失败：{error}");
+                }
                 return;
             }
-            _pageReady = true;
-            BuildHintText.Visibility = Visibility.Collapsed;
-            EmptyHint.Visibility = Visibility.Collapsed;
+
+            if (PreviewReadiness.IsReady(readiness))
+                MarkPageReady(navigationGeneration, navigationId);
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            ShowDiagnostic($"预览启动诊断返回无效数据：{ex.Message}");
+            // The periodic poll retries transient or partially written diagnostic payloads.
         }
+    }
+
+    private void MarkPageReady(long navigationGeneration, ulong navigationId)
+    {
+        if (!IsCurrentNavigation(navigationGeneration, navigationId)) return;
+        _pageReady = true;
+        LoadingRing.IsActive = false;
+        BuildHintText.Visibility = Visibility.Collapsed;
+        EmptyHint.Visibility = Visibility.Collapsed;
+        if (_activeNavigationVisualRevision == _visualPatchRevision)
+            _visualPatchPending = false;
+        ScheduleVisualPatch();
+    }
+
+    private void RequestManualReload()
+    {
+        _assetReloadPending = true;
+        if (!CanProcessRefresh || !_webViewReady) return;
+        _assetReloadTimer.Stop();
+        ReloadPreview();
+    }
+
+    private async Task ExecuteForCurrentNavigationAsync(string script)
+    {
+        long navigationGeneration = _activeNavigationGeneration;
+        ulong navigationId = _activeNavigationId;
+        await EvalStringAsync(script, navigationGeneration, navigationId);
     }
 
     private async void OnTogglePlay(object sender, RoutedEventArgs e)
     {
-        await EvalStringAsync(PreviewScripts.TogglePlay());
+        await ExecuteForCurrentNavigationAsync(PreviewScripts.TogglePlay());
         await PollAsync();
     }
 
     private async void OnToStart(object sender, RoutedEventArgs e)
     {
-        await EvalStringAsync(PreviewScripts.SeekTo(0));
+        await ExecuteForCurrentNavigationAsync(PreviewScripts.SeekTo(0));
         await PollAsync();
     }
 
@@ -343,35 +620,38 @@ public sealed partial class PreviewPage : UserControl
 
     private async Task SeekByAsync(double deltaSeconds)
     {
-        await EvalStringAsync(PreviewScripts.SeekBy(deltaSeconds));
+        await ExecuteForCurrentNavigationAsync(PreviewScripts.SeekBy(deltaSeconds));
         await PollAsync();
     }
 
-    private void OnReload(object sender, RoutedEventArgs e) => ReloadPreview();
+    private void OnReload(object sender, RoutedEventArgs e) => RequestManualReload();
 
     private async void OnSeekChanged(object sender, RangeBaseValueChangedEventArgs e)
     {
         if (_updatingSeek || !_webViewReady) return;
-        await EvalStringAsync(PreviewScripts.SeekTo(e.NewValue));
+        await ExecuteForCurrentNavigationAsync(PreviewScripts.SeekTo(e.NewValue));
     }
 
-    private async void OnPickAudio(object sender, RoutedEventArgs e)
+    private async Task ApplyPickedAssetAsync(Func<string?> getCurrentPath, Action<string> setPath, string title,
+        IReadOnlyCollection<string> extensions, PickerLocationId location)
     {
-        string? path = await PickFileAsync("选择音频文件", AudioExtensions, PickerLocationId.MusicLibrary);
-        if (path is not null && _state is not null) _state.AudioPath = path;
+        string? path = await PickFileAsync(title, extensions, location);
+        if (path is null || _state is null) return;
+        if (string.Equals(getCurrentPath(), path, StringComparison.OrdinalIgnoreCase)) _state.NotifyAssetReselected(path);
+        else setPath(path);
     }
 
-    private async void OnPickLyric(object sender, RoutedEventArgs e)
-    {
-        string? path = await PickFileAsync("选择歌词文件", LyricExtensions, PickerLocationId.DocumentsLibrary);
-        if (path is not null && _state is not null) _state.LyricPath = path;
-    }
+    private async void OnPickAudio(object sender, RoutedEventArgs e) =>
+        await ApplyPickedAssetAsync(() => _state?.AudioPath, value => _state!.AudioPath = value,
+            "选择音频文件", AudioExtensions, PickerLocationId.MusicLibrary);
 
-    private async void OnPickCover(object sender, RoutedEventArgs e)
-    {
-        string? path = await PickFileAsync("选择专辑封面", CoverExtensions, PickerLocationId.PicturesLibrary);
-        if (path is not null && _state is not null) _state.CoverPath = path;
-    }
+    private async void OnPickLyric(object sender, RoutedEventArgs e) =>
+        await ApplyPickedAssetAsync(() => _state?.LyricPath, value => _state!.LyricPath = value,
+            "选择歌词文件", LyricExtensions, PickerLocationId.DocumentsLibrary);
+
+    private async void OnPickCover(object sender, RoutedEventArgs e) =>
+        await ApplyPickedAssetAsync(() => _state?.CoverPath, value => _state!.CoverPath = value,
+            "选择专辑封面", CoverExtensions, PickerLocationId.PicturesLibrary);
 
     private async Task<string?> PickFileAsync(
         string title, IReadOnlyCollection<string> extensions, PickerLocationId location)

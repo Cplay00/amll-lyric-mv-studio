@@ -3,12 +3,20 @@ using AmllMvStudio.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Windowing;
+using System.Runtime.InteropServices;
 using Windows.Graphics;
 
 namespace AmllMvStudio;
 
 public sealed partial class MainWindow : Window
 {
+    internal const double DesiredWidthDip = 1440;
+    internal const double DesiredHeightDip = 940;
+    internal const int WorkAreaMarginPixels = 80;
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint hwnd);
+
     private readonly AppState _state = new();
     private readonly LocalAssetServer _server;
 
@@ -16,12 +24,18 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
-        Title = "AMLL 歌词 MV 工作台";
+        Title = "AMLL Lyric MV Studio";
 
-        // 应用图标与窗口尺寸
+        // AppWindow 使用物理像素。将期望 DIP 按当前窗口 DPI 换算，再按工作区留边限制。
         if (AppWindow is not null)
         {
-            AppWindow.Resize(new SizeInt32(1440, 940));
+            nint windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            DisplayArea displayArea = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
+            RectInt32 workArea = displayArea.WorkArea;
+            uint dpi = GetDpiForWindow(windowHandle);
+            (int width, int height) = GuiLayoutMetrics.CalculateInitialWindowSize(
+                DesiredWidthDip, DesiredHeightDip, dpi, workArea.Width, workArea.Height, WorkAreaMarginPixels);
+            AppWindow.Resize(new SizeInt32(width, height));
 
             string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico");
             if (File.Exists(iconPath)) AppWindow.SetIcon(iconPath);
@@ -100,12 +114,14 @@ public sealed partial class MainWindow : Window
     {
         // NavigationView 在 XAML 解析期就会触发一次选中回调，
         // 那时内容区控件尚未创建完毕，需要跳过。
-        if (PreviewView is null || ExportView is null) return;
+        if (PreviewView is null || ExportView is null || AboutView is null) return;
         if (args.SelectedItem is not NavigationViewItem item) return;
         string tag = item.Tag as string ?? "preview";
 
         bool preview = tag == "preview";
+        PreviewView.SetActive(preview);
         PreviewView.Visibility = preview ? Visibility.Visible : Visibility.Collapsed;
-        ExportView.Visibility = preview ? Visibility.Collapsed : Visibility.Visible;
+        ExportView.Visibility = tag == "export" ? Visibility.Visible : Visibility.Collapsed;
+        AboutView.Visibility = tag == "about" ? Visibility.Visible : Visibility.Collapsed;
     }
 }

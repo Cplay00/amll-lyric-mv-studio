@@ -13,6 +13,16 @@ public static class PreviewScripts
         return File.Exists(Path.Combine(distRoot, "index.html")) ? distRoot : projectRoot;
     }
 
+    /// <summary>解码 WebView2 对脚本返回值额外施加的一层 JSON 编码。</summary>
+    internal static string? DecodeExecuteScriptResult(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw == "null") return null;
+        using JsonDocument document = JsonDocument.Parse(raw);
+        return document.RootElement.ValueKind == JsonValueKind.String
+            ? document.RootElement.GetString()
+            : document.RootElement.GetRawText();
+    }
+
     /// <summary>播放/暂停走桥接层：LyricPlayer 依赖 playing 状态驱动间奏动画，绕过桥接会丢相位。</summary>
     public static string TogglePlay() =>
         "(function(){const b=window.__amllMv;const a=document.querySelector('audio');" +
@@ -113,5 +123,6 @@ public static class PreviewScripts
         "(function(){const root=document.getElementById('root');const bridge=window.__amllMv;" +
         "return JSON.stringify({root:!!root,rendered:!!(root&&root.childElementCount)," +
         "bridge:!!bridge,setOptions:typeof bridge?.setOptions==='function'," +
+        "ready:bridge?.ready===true,readiness:bridge?.readiness??null," +
         "error:bridge?.error??null,title:document.title||''});})()";
 }
