@@ -53,7 +53,12 @@ export interface RenderOptions {
   artworkScale: number; // 默认 1.0 (0.5 ~ 1.5)
   lyricAlign: LyricAlignMode; // 默认 "left"
   lyricOffset: number; // 垂直位置偏移 (px)，范围 -600 ~ 600，默认 0
-  lyricWidth: number; // 歌词区域宽度占比百分比 (30 ~ 80)，默认 54
+  lyricWidth: number; // 歌词区域宽度占比百分比 (30 ~ 100)，默认 54
+  lyricHeight: number; // 歌词区域高度占比百分比 (20 ~ 100)，默认 100
+  infoOffsetX: number; // 封面与信息块水平偏移（舞台宽度百分比 -30 ~ 30），默认 0
+  infoOffsetY: number; // 封面与信息块垂直偏移（舞台高度百分比 -30 ~ 30），默认 0
+  stageWidth: number | null; // 舞台宽度覆盖（宿主热更新通道），null 表示跟随预设
+  stageHeight: number | null; // 舞台高度覆盖，null 表示跟随预设
   lyricFade: number; // 歌词上下边缘羽化，占舞台高度比例 0 ~ 0.3，默认 0.08
   backgroundDim: number; // 遮罩暗度 0 ~ 0.9，默认 0.15
   backgroundSaturation: number; // 背景饱和度比例 0 ~ 2.0，默认 1.2
@@ -90,7 +95,12 @@ export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   artworkScale: 1.0,
   lyricAlign: "left",
   lyricOffset: 0,
-  lyricWidth: 54, // 歌词区域宽度百分数 30..80，默认 54
+  lyricWidth: 54, // 歌词区域宽度百分数 30..100，默认 54
+  lyricHeight: 100, // 歌词区域高度百分数 20..100，默认铺满
+  infoOffsetX: 0,
+  infoOffsetY: 0,
+  stageWidth: null,
+  stageHeight: null,
   lyricFade: 0.08, // 歌词边缘羽化默认 8% 舞台高度
   backgroundDim: 0.15,
   backgroundSaturation: 1.2, // 背景饱和度比例 0..2，默认 1.2
@@ -150,6 +160,9 @@ export function clamp(val: number, min: number, max: number): number {
 export function sanitizeRenderOptions(raw: Partial<RenderOptions>): Partial<RenderOptions> {
   const result: Partial<RenderOptions> = { ...raw };
 
+  if (result.presetId !== undefined) {
+    result.presetId = clampPresetId(String(result.presetId));
+  }
   if (result.fps !== undefined) {
     result.fps = clamp(Math.round(result.fps), 1, 240);
   }
@@ -178,7 +191,22 @@ export function sanitizeRenderOptions(raw: Partial<RenderOptions>): Partial<Rend
     result.lyricOffset = clamp(result.lyricOffset, -600, 600);
   }
   if (result.lyricWidth !== undefined) {
-    result.lyricWidth = clamp(result.lyricWidth, 30, 80);
+    result.lyricWidth = clamp(result.lyricWidth, 30, 100);
+  }
+  if (result.lyricHeight !== undefined) {
+    result.lyricHeight = clamp(result.lyricHeight, 20, 100);
+  }
+  if (result.infoOffsetX !== undefined) {
+    result.infoOffsetX = clamp(result.infoOffsetX, -30, 30);
+  }
+  if (result.infoOffsetY !== undefined) {
+    result.infoOffsetY = clamp(result.infoOffsetY, -30, 30);
+  }
+  if (result.stageWidth !== undefined && result.stageWidth !== null) {
+    result.stageWidth = clamp(Math.round(result.stageWidth), 16, 8192);
+  }
+  if (result.stageHeight !== undefined && result.stageHeight !== null) {
+    result.stageHeight = clamp(Math.round(result.stageHeight), 16, 8192);
   }
   if (result.lyricFade !== undefined) {
     result.lyricFade = clamp(result.lyricFade, 0, 0.3);
@@ -246,9 +274,14 @@ export const STAGE_PRESETS: StagePreset[] = [
 
 export type StageLayoutClass = "landscape" | "portrait" | "square";
 
-export function getStageLayoutClass(presetId: string): StageLayoutClass {
+export function getStageLayoutClass(presetId: string, width?: number, height?: number): StageLayoutClass {
   if (presetId === "vertical") return "portrait";
   if (presetId === "square") return "square";
+  // 自定义尺寸按实际宽高比判定布局，与预设行为保持一致。
+  if (presetId === "custom" && width && height) {
+    if (width === height) return "square";
+    return height > width ? "portrait" : "landscape";
+  }
   return "landscape";
 }
 
@@ -270,7 +303,7 @@ export const FONT_PRESETS: FontPreset[] = [
 
 // 单独属性 clamp 辅助函数
 export function clampPresetId(val: string): string {
-  const allowed = STAGE_PRESETS.map((p) => p.id);
+  const allowed = [...STAGE_PRESETS.map((p) => p.id), "custom"];
   return allowed.includes(val) ? val : "1080p";
 }
 
@@ -327,7 +360,15 @@ export function clampLyricOffset(val: number): number {
 }
 
 export function clampLyricWidth(val: number): number {
-  return clamp(val, 30, 80);
+  return clamp(val, 30, 100);
+}
+
+export function clampLyricHeight(val: number): number {
+  return clamp(val, 20, 100);
+}
+
+export function clampInfoOffset(val: number): number {
+  return clamp(val, -30, 30);
 }
 
 export function clampLyricFade(val: number): number {

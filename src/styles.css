@@ -146,6 +146,13 @@ body {
   pointer-events: auto;
 }
 
+/* 封面与信息块的位置参数：数值为舞台宽/高的百分比偏移（宿主滑块 -30..30）。 */
+.stage-content .stage-left {
+  position: relative;
+  left: calc(var(--info-offset-x, 0) * 1%);
+  top: calc(var(--info-offset-y, 0) * 1%);
+}
+
 /* 横屏模式 (Landscape) */
 .stage-content--landscape {
   flex-direction: row;

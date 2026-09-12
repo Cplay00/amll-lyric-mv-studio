@@ -46,10 +46,11 @@ export function runUnitTests(): { passed: number; total: number; errors: string[
   assert(clampSecondaryMode("both") === "both", "secondaryMode both");
   assert(clampSecondaryMode("invalid") === "none", "secondaryMode fallback");
 
-  // 2. lyricWidth: 30..80, 默认 54
+  // 2. lyricWidth: 30..100, 默认 54
   assert(clampLyricWidth(54) === 54, "lyricWidth default 54");
   assert(clampLyricWidth(20) === 30, "lyricWidth clamp lower 30");
-  assert(clampLyricWidth(95) === 80, "lyricWidth clamp upper 80");
+  assert(clampLyricWidth(95) === 95, "lyricWidth 95 within range");
+  assert(clampLyricWidth(120) === 100, "lyricWidth clamp upper 100");
   assert(clampLyricWidth(Number.NaN) === 30, "lyricWidth NaN fallback");
 
   // 3. lyricOffset: -600..600 垂直像素
@@ -111,7 +112,7 @@ export function runUnitTests(): { passed: number; total: number; errors: string[
     fps: 300,
   };
   const fixed = clampOptions(badOptions);
-  assert(fixed.lyricWidth === 80, "clampOptions lyricWidth");
+  assert(fixed.lyricWidth === 100, "clampOptions lyricWidth");
   assert(fixed.lyricOffset === 600, "clampOptions lyricOffset");
   assert(fixed.backgroundSaturation === 2.0, "clampOptions backgroundSaturation");
   assert(fixed.secondaryMode === "both", "clampOptions secondaryMode both");

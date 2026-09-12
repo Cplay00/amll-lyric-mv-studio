@@ -19,6 +19,8 @@ import {
   buildFfmpegArgs,
   chooseEncoder,
   formatConcatTimeline,
+  getEncoderRateControlCandidates,
+  ENCODER_PRESETS,
   holdFirstFrameUntil,
   normalizeCanonicalOptions,
   normalizeCapturedFrames,
@@ -40,6 +42,7 @@ const PRESETS = Object.freeze({
   "4k": { width: 3840, height: 2160 },
   vertical: { width: 1080, height: 1920 },
   square: { width: 1080, height: 1080 },
+  custom: { width: 1920, height: 1080 },
 });
 const VALUE_FLAGS = new Set([
   "audio", "lyric", "cover", "out", "preset", "width", "height", "fps", "flow-speed",
@@ -47,7 +50,8 @@ const VALUE_FLAGS = new Set([
   "encoder-preset", "audio-codec", "audio-bitrate", "browser-gpu", "title", "artist", "album",
   "font-family", "font-scale", "font-weight", "secondary-mode", "show-song-info", "show-artist",
   "show-album", "show-artwork", "show-controls", "artwork-scale", "lyric-align", "lyric-offset",
-  "lyric-width", "lyric-fade", "background-dim", "background-saturation", "background-blur",
+  "lyric-width", "lyric-height", "info-offset-x", "info-offset-y", "lyric-fade",
+  "background-dim", "background-saturation", "background-blur",
   "duration",
 ]);
 const SWITCH_FLAGS = new Set(["help", "list-encoders", "keep-frames", "progress-json"]);
@@ -57,7 +61,9 @@ const FRONTEND_QUERY = Object.freeze({
   "show-song-info": "showSongInfo", "show-artist": "showArtist", "show-album": "showAlbum",
   "show-artwork": "showArtwork", "show-controls": "showControls",
   "artwork-scale": "artworkScale", "lyric-align": "lyricAlign", "lyric-offset": "lyricOffset",
-  "lyric-width": "lyricWidth", "lyric-fade": "lyricFade", "background-dim": "backgroundDim",
+  "lyric-width": "lyricWidth", "lyric-height": "lyricHeight",
+  "info-offset-x": "infoOffsetX", "info-offset-y": "infoOffsetY",
+  "lyric-fade": "lyricFade", "background-dim": "backgroundDim",
   "background-saturation": "backgroundSaturation", "background-blur": "backgroundBlur",
 });
 const HELP = `AMLL MV renderer
@@ -68,7 +74,7 @@ Input/output:
   --lyric <path>              Lyric input (TTML/LRC/YRC/QRC/...)
   --cover <path>              Artwork input
   --out <path>                Output (.mp4 default; .mov/.mkv supported)
-  --preset <id>               1080p|1440p|4k|vertical|square (default 1080p)
+  --preset <id>               1080p|1440p|4k|vertical|square|custom (default 1080p)
   --width/--height <px>       Override preset dimensions (16..8192)
   --fps <n>                   Output FPS (1..240, default 60)
   --head <ms>                 Hold the first frame before audio starts (default 0)
@@ -93,7 +99,9 @@ Browser/query:
   --show-song-info/--show-artist/--show-album/--show-artwork/--show-controls <true|false>
   --artwork-scale <0.5..1.5> --lyric-align <left|center|right>
   --lyric-offset <-600..600> Vertical offset in pixels (default ${CANONICAL_RENDER_OPTIONS.lyricOffset})
-  --lyric-width <30..80>       Lyric width percentage (default ${CANONICAL_RENDER_OPTIONS.lyricWidth})
+  --lyric-width <30..100>      Lyric width percentage (default ${CANONICAL_RENDER_OPTIONS.lyricWidth})
+  --lyric-height <20..100>     Lyric area height percentage (default 100)
+  --info-offset-x/y <-30..30>  Cover & song-info block offset in percent of stage width/height (default 0)
   --lyric-fade <0..0.3>        Lyric edge feather as stage-height ratio (default ${CANONICAL_RENDER_OPTIONS.lyricFade}; 0 disables)
   --background-dim <0..0.9> --background-saturation <0..2> (ratio; default ${CANONICAL_RENDER_OPTIONS.backgroundSaturation})
   --background-blur <0..100>
@@ -205,6 +213,7 @@ export function parseOptions(argv) {
   const frontendRanges = [
     ["font-scale", 0.5, 2], ["font-weight", 100, 900, true], ["artwork-scale", 0.5, 1.5],
     ["background-dim", 0, 0.9], ["background-blur", 0, 100],
+    ["lyric-height", 20, 100], ["info-offset-x", -30, 30], ["info-offset-y", -30, 30],
   ];
   for (const [name, min, max, integer] of frontendRanges) {
     if (args[name] !== undefined) numberArg(args, name, 0, min, max, Boolean(integer));
@@ -281,13 +290,6 @@ export async function probeEncoder(ffmpegPath, encoder, supportedPresets, execut
   let preset;
   try {
     preset = resolveEncoderPreset(encoder, null, supportedPresets);
-    await execute(
-      ffmpegPath,
-      buildEncoderProbeArgs({ encoder, encoderPreset: preset, supportedPresets }),
-      `${encoder} 320x180 真实试编码`,
-      { timeoutMs: 12_000 },
-    );
-    return { id: encoder, compiled: true, available: true, failureReason: null, supportedPresets, defaultPreset: preset };
   } catch (error) {
     return {
       id: encoder,
@@ -295,9 +297,34 @@ export async function probeEncoder(ffmpegPath, encoder, supportedPresets, execut
       available: false,
       failureReason: String(error?.message ?? error).replace(/\s+/g, " ").trim().slice(0, 1000),
       supportedPresets,
-      defaultPreset: preset,
+      defaultPreset: undefined,
+      rateControl: null,
     };
   }
+  // 硬件会话顺序探测（避免驱动/会话竞争导致假阴性），每个家族按候选码控模式依次回退。
+  const failures = [];
+  for (const amfRateControl of getEncoderRateControlCandidates(encoder)) {
+    try {
+      await execute(
+        ffmpegPath,
+        buildEncoderProbeArgs({ encoder, encoderPreset: preset, supportedPresets, amfRateControl }),
+        `${encoder} 320x180 真实试编码`,
+        { timeoutMs: 12_000 },
+      );
+      return { id: encoder, compiled: true, available: true, failureReason: null, supportedPresets, defaultPreset: preset, rateControl: amfRateControl };
+    } catch (error) {
+      failures.push(String(error?.message ?? error).replace(/\s+/g, " ").trim().slice(0, 500));
+    }
+  }
+  return {
+    id: encoder,
+    compiled: true,
+    available: false,
+    failureReason: failures.filter(Boolean).join("；").slice(0, 1000) || "试编码失败。",
+    supportedPresets,
+    defaultPreset: preset,
+    rateControl: null,
+  };
 }
 
 async function probeFfmpeg(ffmpegPath) {
@@ -323,6 +350,11 @@ async function probeFfmpeg(ffmpegPath) {
         { acceptedCodes: [0, 1], timeoutMs: 8_000 },
       );
       supportedPresets = parseEncoderPresetHelp(encoder, `${result.stdout}\n${result.stderr}`);
+      if (supportedPresets.size === 0 && ENCODER_PRESETS[encoder]) {
+        // 非常规 ffmpeg 构建的帮助文本可能不含任何已知 preset 词；
+        // 回退到规范 preset 表继续真实试编码，而不是把编码器直接判死。
+        supportedPresets = new Set(ENCODER_PRESETS[encoder]);
+      }
     } catch (error) {
       capabilities.set(encoder, {
         id: encoder, compiled: true, available: false,
@@ -371,6 +403,7 @@ function encoderReport(probe, ffmpegPath, ffmpegSource) {
         supportedPresets: [...(capability?.supportedPresets ?? [])],
         presets: [...(capability?.supportedPresets ?? [])],
         defaultPreset: capability?.available ? capability.defaultPreset : undefined,
+        rateControl: capability?.available ? (capability.rateControl ?? null) : null,
       };
     }),
   };
@@ -790,11 +823,14 @@ async function render(options, ffmpegProbe) {
         options.encoder === "auto" ? null : options.encoderPreset,
         ffmpegProbe.presets.get(selectedEncoder),
       );
+      // 正式编码复用探测命中的 AMF 码控模式，但质量值取用户设定：
+      // 探测用 28 只是为了验证可用性，不能改变成片质量。
+      const amfRateControl = ffmpegProbe.capabilities.get(selectedEncoder)?.rateControl ?? null;
       const ffmpegArgs = buildFfmpegArgs({
         audioPath: options.audioPath, outputPath, fps: options.fps, durationMs: timeline.durationMs,
         audioOffsetMs, headMs: options.headMs, encoder: selectedEncoder, encoderPreset,
         quality: options.quality, audioCodec: options.audioCodec, audioBitrate: options.audioBitrate,
-        ffmpegMajorVersion: ffmpegProbe.majorVersion,
+        ffmpegMajorVersion: ffmpegProbe.majorVersion, amfRateControl,
       });
       const softwareThreadNote = selectedEncoder === "libx264" || selectedEncoder === "libx265"
         ? "，threads 0（自动多核）"

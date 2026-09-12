@@ -22,7 +22,7 @@ export function normalizeCanonicalOptions(input = {}) {
   if (!["none", "translation", "roman", "both"].includes(normalized.secondaryMode)) {
     throw new Error("secondaryMode 必须是 none / translation / roman / both。");
   }
-  for (const [name, min, max] of [["lyricWidth", 30, 80], ["lyricFade", 0, 0.3], ["lyricOffset", -600, 600], ["backgroundSaturation", 0, 2]]) {
+  for (const [name, min, max] of [["lyricWidth", 30, 100], ["lyricFade", 0, 0.3], ["lyricOffset", -600, 600], ["backgroundSaturation", 0, 2]]) {
     const value = normalized[name];
     if (!Number.isFinite(value) || value < min || value > max) {
       throw new Error(`${name} 必须是 ${min}..${max} 的有限数值。`);
@@ -338,7 +338,7 @@ export function parseFfmpegMajorVersion(output) {
   return /ffmpeg version\s+N-/i.test(text) ? 4 : null;
 }
 
-export function getEncoderQualityArgs(encoder, quality, preset, supportedPresets) {
+export function getEncoderQualityArgs(encoder, quality, preset, supportedPresets, amfRateControl = "cqp") {
   const resolvedPreset = resolveEncoderPreset(encoder, preset, supportedPresets);
   const q = String(quality);
   if (encoder === "libx264" || encoder === "libx265") {
@@ -351,24 +351,40 @@ export function getEncoderQualityArgs(encoder, quality, preset, supportedPresets
     return ["-preset", resolvedPreset, "-global_quality", q];
   }
   if (encoder.endsWith("_amf")) {
+    // AMF 驱动对码控模式的支持差异很大：cqp 最常用，qvbr/vbr_peak 是
+    // 老/新驱动下的备选；探测命中哪个模式，正式编码就用哪个模式。
+    if (amfRateControl === "qvbr") {
+      return ["-quality", resolvedPreset, "-rc", "qvbr", "-qvbr_quality_level", q];
+    }
+    if (amfRateControl === "vbr_peak") {
+      // vbr_peak 没有质量标度：按用户质量值推导目标码率（q16≈9M，q28≈6M，q51≈250k），
+      // 避免回退路径静默丢失质量设定。
+      const bitrate = `${Math.max(1, (52 - quality) * 250)}k`;
+      return ["-quality", resolvedPreset, "-rc", "vbr_peak", "-b:v", bitrate];
+    }
     return ["-quality", resolvedPreset, "-rc", "cqp", "-qp_i", q, "-qp_p", q];
   }
   throw new Error(`未知视频编码器：${encoder}`);
 }
 
-export function buildEncoderVideoArgs({ encoder, quality, encoderPreset, supportedPresets }) {
+/** 硬件编码器试编码候选：AMF 按码控模式回退，其余家族单一默认候选。 */
+export function getEncoderRateControlCandidates(encoder) {
+  return encoder.endsWith("_amf") ? ["cqp", "qvbr", "vbr_peak"] : [null];
+}
+
+export function buildEncoderVideoArgs({ encoder, quality, encoderPreset, supportedPresets, amfRateControl }) {
   return [
     "-c:v", encoder,
-    ...getEncoderQualityArgs(encoder, quality, encoderPreset, supportedPresets),
+    ...getEncoderQualityArgs(encoder, quality, encoderPreset, supportedPresets, amfRateControl),
     "-pix_fmt", "yuv420p",
   ];
 }
 
-export function buildEncoderProbeArgs({ encoder, quality = 28, encoderPreset, supportedPresets }) {
+export function buildEncoderProbeArgs({ encoder, quality = 28, encoderPreset, supportedPresets, amfRateControl }) {
   return [
     "-hide_banner", "-loglevel", "error", "-nostdin",
     "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=10:duration=0.5",
-    "-an", ...buildEncoderVideoArgs({ encoder, quality, encoderPreset, supportedPresets }),
+    "-an", ...buildEncoderVideoArgs({ encoder, quality, encoderPreset, supportedPresets, amfRateControl }),
     "-frames:v", "5", "-f", "null", "-",
   ];
 }
@@ -424,7 +440,7 @@ export function buildFfmpegArgs(options) {
   args.push(
     "-map", "0:v:0",
     "-map", "1:a:0",
-    ...buildEncoderVideoArgs({ encoder, quality, encoderPreset }),
+    ...buildEncoderVideoArgs({ encoder, quality, encoderPreset, amfRateControl: options.amfRateControl }),
     "-r", String(fps),
     ...getFfmpegCfrArgs(ffmpegMajorVersion),
     "-c:a", audioCodec,

@@ -18,6 +18,7 @@ public sealed partial class ExportPage : UserControl
     private RenderRunner? _runner;
     private string? _lastOutputPath;
     private string? _overwriteConfirmedKey;
+    private string? _autoFilledTitle;
     private CancellationTokenSource? _lifecycleCts;
     private Task? _encoderProbeTask;
     private readonly StringBuilder _log = new();
@@ -31,12 +32,29 @@ public sealed partial class ExportPage : UserControl
     internal const double ParameterWidthRatio = GuiLayoutMetrics.ParameterWidthRatio;
     internal const double ParameterMaxWidth = GuiLayoutMetrics.ParameterMaxWidth;
 
+    /// <summary>本地化的预设显示项；DisplayLabel 跟随语言，custom 的尺寸跟随用户输入。</summary>
+    public sealed record PresetOption(StagePreset Preset)
+    {
+        public string DisplayLabel { get; } =
+            $"{LocalizationService.T($"Preset.{Preset.Id}")} · {Preset.Dimensions}";
+    }
+
+    private List<PresetOption> BuildPresetOptions()
+    {
+        int customWidth = _state?.CustomStageWidth ?? StagePresets.Resolve(StagePresets.CustomId).Width;
+        int customHeight = _state?.CustomStageHeight ?? StagePresets.Resolve(StagePresets.CustomId).Height;
+        return StagePresets.All
+            .Select(preset => new PresetOption(
+                preset.Id == StagePresets.CustomId ? preset with { Width = customWidth, Height = customHeight } : preset))
+            .ToList();
+    }
+
     public ExportPage()
     {
         InitializeComponent();
-        PresetCombo.ItemsSource = StagePresets.All;
+        PresetCombo.ItemsSource = BuildPresetOptions();
         FpsSlider.Minimum = 24;
-        FpsSlider.Maximum = 60;
+        FpsSlider.Maximum = 120;
         FpsSlider.StepFrequency = 1;
         ArtworkScaleSlider.Minimum = 0.5;
         ArtworkScaleSlider.Maximum = 1.5;
@@ -46,6 +64,12 @@ public sealed partial class ExportPage : UserControl
         FontScaleSlider.Maximum = 2;
         LyricWidthSlider.Minimum = RenderContracts.MinLyricWidth;
         LyricWidthSlider.Maximum = RenderContracts.MaxLyricWidth;
+        LyricHeightSlider.Minimum = RenderContracts.MinLyricHeight;
+        LyricHeightSlider.Maximum = RenderContracts.MaxLyricHeight;
+        InfoOffsetXSlider.Minimum = RenderContracts.MinInfoOffset;
+        InfoOffsetXSlider.Maximum = RenderContracts.MaxInfoOffset;
+        InfoOffsetYSlider.Minimum = RenderContracts.MinInfoOffset;
+        InfoOffsetYSlider.Maximum = RenderContracts.MaxInfoOffset;
         LyricFadeSlider.Minimum = RenderContracts.MinLyricFade;
         LyricFadeSlider.Maximum = RenderContracts.MaxLyricFade;
         QualitySlider.Minimum = 10;
@@ -53,12 +77,12 @@ public sealed partial class ExportPage : UserControl
         ParameterPanel.MaxWidth = ParameterMaxWidth;
         PageScrollViewer.SizeChanged += OnPageViewportSizeChanged;
         EnsureRowCount(ProjectInfoGrid, 3);
-        EnsureRowCount(StageLayoutGrid, 5);
-        EnsureRowCount(LyricsGrid, 9);
+        EnsureRowCount(StageLayoutGrid, 6);
+        EnsureRowCount(LyricsGrid, 11);
         EnsureRowCount(BackgroundGrid, 3);
         EnsureRowCount(DisplayOptionsGrid, 3);
         EnsureRowCount(EncodingGrid, 9);
-        PresetCombo.DisplayMemberPath = nameof(StagePreset.DisplayLabel);
+        PresetCombo.DisplayMemberPath = nameof(PresetOption.DisplayLabel);
         FontFamilyCombo.ItemsSource = SystemFontCatalog.GetFontFamilies();
         FontWeightCombo.ItemsSource = Enumerable.Range(1, 9).Select(value => value * 100).ToArray();
         SecondaryModeCombo.ItemsSource = RenderContracts.SecondaryModes;
@@ -164,10 +188,11 @@ public sealed partial class ExportPage : UserControl
 
         SetGridColumns(StageLayoutGrid, stacked);
         Place(PresetCombo, 0, 0, stacked ? 1 : 2);
-        Place(FpsSlider.Parent as FrameworkElement, 1, 0);
-        Place(ArtworkScaleSlider.Parent as FrameworkElement, stacked ? 2 : 1, stacked ? 0 : 1);
-        Place(FlowSlider.Parent as FrameworkElement, stacked ? 3 : 2, 0);
-        Place(RenderScaleSlider.Parent as FrameworkElement, stacked ? 4 : 2, stacked ? 0 : 1);
+        Place(CustomSizePanel, 1, 0, stacked ? 1 : 2);
+        Place(FpsSlider.Parent as FrameworkElement, 2, 0);
+        Place(ArtworkScaleSlider.Parent as FrameworkElement, stacked ? 3 : 2, stacked ? 0 : 1);
+        Place(FlowSlider.Parent as FrameworkElement, stacked ? 4 : 3, 0);
+        Place(RenderScaleSlider.Parent as FrameworkElement, stacked ? 5 : 3, stacked ? 0 : 1);
 
         SetGridColumns(LyricsGrid, stacked);
         Place(FontFamilyCombo, 0, 0, stacked ? 1 : 2);
@@ -177,7 +202,10 @@ public sealed partial class ExportPage : UserControl
         Place(LyricAlignCombo, stacked ? 4 : 2, stacked ? 0 : 1);
         Place(LyricOffsetSlider.Parent as FrameworkElement, stacked ? 5 : 3, 0);
         Place(LyricWidthSlider.Parent as FrameworkElement, stacked ? 6 : 3, stacked ? 0 : 1);
-        Place(LyricFadeSlider.Parent as FrameworkElement, stacked ? 7 : 4, 0, stacked ? 1 : 2);
+        Place(LyricHeightSlider.Parent as FrameworkElement, stacked ? 7 : 4, 0);
+        Place(InfoOffsetXSlider.Parent as FrameworkElement, stacked ? 8 : 4, stacked ? 0 : 1);
+        Place(InfoOffsetYSlider.Parent as FrameworkElement, stacked ? 9 : 5, 0);
+        Place(LyricFadeSlider.Parent as FrameworkElement, stacked ? 10 : 5, stacked ? 0 : 1);
 
         SetGridColumns(BackgroundGrid, stacked);
         Place(BackgroundDimSlider.Parent as FrameworkElement, 0, 0);
@@ -237,6 +265,86 @@ public sealed partial class ExportPage : UserControl
         StartEncoderProbe();
     }
 
+    public void ApplyLocalization()
+    {
+        PageTitleText.Text = LocalizationService.T("Export.Title");
+        PageSubtitleText.Text = LocalizationService.T("Export.Subtitle");
+        ProjectInfoExpander.Header = LocalizationService.T("Export.ProjectInfo");
+        TitleBox.Header = LocalizationService.T("Export.TitleHeader");
+        TitleBox.PlaceholderText = LocalizationService.T("Export.TitlePlaceholder");
+        ArtistBox.Header = LocalizationService.T("Export.ArtistHeader");
+        ArtistBox.PlaceholderText = LocalizationService.T("Export.ArtistPlaceholder");
+        AlbumBox.Header = LocalizationService.T("Export.AlbumHeader");
+        AlbumBox.PlaceholderText = LocalizationService.T("Export.AlbumPlaceholder");
+        AssetsExpander.Header = LocalizationService.T("Export.Assets");
+        AudioButtonText.Text = LocalizationService.T("Export.AudioRequired");
+        ToolTipService.SetToolTip(PickAudioButton, LocalizationService.T("Export.AudioTooltip"));
+        LyricButtonText.Text = LocalizationService.T("Export.LyricOptional");
+        ToolTipService.SetToolTip(PickLyricButton, LocalizationService.T("Export.LyricTooltip"));
+        CoverButtonText.Text = LocalizationService.T("Export.CoverOptional");
+        ToolTipService.SetToolTip(PickCoverButton, LocalizationService.T("Export.CoverTooltip"));
+        StageLayoutExpander.Header = LocalizationService.T("Export.StageLayout");
+        PresetCombo.Header = LocalizationService.T("Export.PresetHeader");
+        CustomWidthBox.Header = LocalizationService.T("Export.CustomWidthHeader");
+        CustomHeightBox.Header = LocalizationService.T("Export.CustomHeightHeader");
+        LyricsExpander.Header = LocalizationService.T("Export.LyricsSection");
+        FontFamilyCombo.Header = LocalizationService.T("Export.FontFamilyHeader");
+        ToolTipService.SetToolTip(FontFamilyCombo, LocalizationService.T("Export.FontFamilyTooltip"));
+        FontWeightCombo.Header = LocalizationService.T("Export.FontWeight");
+        SecondaryModeCombo.Header = LocalizationService.T("Export.SecondaryMode");
+        LyricAlignCombo.Header = LocalizationService.T("Export.LyricAlign");
+        ToolTipService.SetToolTip(LyricHeightSlider, LocalizationService.T("Export.LyricHeightTooltip"));
+        ToolTipService.SetToolTip(InfoOffsetXSlider, LocalizationService.T("Export.InfoOffsetTooltip"));
+        ToolTipService.SetToolTip(InfoOffsetYSlider, LocalizationService.T("Export.InfoOffsetTooltip"));
+        BackgroundExpander.Header = LocalizationService.T("Export.Background");
+        DisplayOptionsExpander.Header = LocalizationService.T("Export.DisplayOptions");
+        ShowSongInfoToggle.Header = LocalizationService.T("Export.ShowSongInfo");
+        ToolTipService.SetToolTip(ShowSongInfoToggle, LocalizationService.T("Export.ShowSongInfoTooltip"));
+        ShowArtworkToggle.Header = LocalizationService.T("Export.ShowArtwork");
+        ShowControlsToggle.Header = LocalizationService.T("Export.ShowControls");
+        ShowControlsToggle.OffContent = LocalizationService.T("Export.ShowControlsOff");
+        ShowControlsToggle.OnContent = LocalizationService.T("Export.ShowControlsOn");
+        ShowArtistToggle.Header = LocalizationService.T("Export.ShowArtist");
+        ShowArtistToggle.OnContent = LocalizationService.T("Export.ShowArtistOn");
+        ShowArtistToggle.OffContent = LocalizationService.T("Export.ShowArtistOff");
+        ShowAlbumToggle.Header = LocalizationService.T("Export.ShowAlbum");
+        ShowAlbumToggle.OnContent = LocalizationService.T("Export.ShowArtistOn");
+        ShowAlbumToggle.OffContent = LocalizationService.T("Export.ShowArtistOff");
+        BrowserGpuCombo.Header = LocalizationService.T("Export.BrowserGpu");
+        ToolTipService.SetToolTip(BrowserGpuCombo, LocalizationService.T("Export.BrowserGpuTooltip"));
+        EncodingExpander.Header = LocalizationService.T("Export.Encoding");
+        OutputBox.Header = LocalizationService.T("Export.OutputHeader");
+        OutputBox.PlaceholderText = LocalizationService.T("Export.OutputPlaceholder");
+        ToolTipService.SetToolTip(PickOutputButton, LocalizationService.T("Export.PickOutputTooltip"));
+        ToolTipService.SetToolTip(ShowControlsToggle, LocalizationService.T("Export.ShowControlsTooltip"));
+        ToolTipService.SetToolTip(LyricFadeSlider, LocalizationService.T("Export.LyricFadeTooltip"));
+        ToolTipService.SetToolTip(EncoderCombo, LocalizationService.T("Export.EncoderTooltip"));
+        EncoderCombo.Header = LocalizationService.T("Export.Encoder");
+        EncoderPresetCombo.Header = LocalizationService.T("Export.EncoderPreset");
+        HeadBox.Header = LocalizationService.T("Export.Head");
+        TailBox.Header = LocalizationService.T("Export.Tail");
+        AudioCodecCombo.Header = LocalizationService.T("Export.AudioCodec");
+        AudioBitrateCombo.Header = LocalizationService.T("Export.AudioBitrate");
+        TimingNoteText.Text = LocalizationService.T("Export.TimingNote");
+        TaskStatusTitle.Text = LocalizationService.T("Export.TaskStatus");
+        TaskLogTitle.Text = LocalizationService.T("Export.TaskLog");
+        StartButtonText.Text = LocalizationService.T("Export.StartRender");
+        CancelButtonText.Text = LocalizationService.T("Export.CancelTask");
+        OpenOutputButtonText.Text = LocalizationService.T("Export.OpenOutput");
+        PlayResultButtonText.Text = LocalizationService.T("Export.PlayResult");
+        SyncAssetBadges();
+        UpdateLabels();
+        RefreshPresetOptions();
+        SetStatus(_lastStatusKey, _lastStageKey);
+    }
+
+    private void RefreshPresetOptions()
+    {
+        if (!_ready) return;
+        PresetCombo.ItemsSource = BuildPresetOptions();
+        if (_state is not null) SyncPresetSelection();
+    }
+
     private void StartEncoderProbe()
     {
         _lifecycleCts?.Cancel();
@@ -256,16 +364,34 @@ public sealed partial class ExportPage : UserControl
         FontScaleSlider.Value = _state.FontScale; LyricOffsetSlider.Value = _state.LyricOffset;
         LyricWidthSlider.Value = _state.LyricWidth; BackgroundDimSlider.Value = _state.BackgroundDim;
         BackgroundSaturationSlider.Value = _state.BackgroundSaturation; BackgroundBlurSlider.Value = _state.BackgroundBlur;
+        LyricHeightSlider.Value = _state.LyricHeight;
+        InfoOffsetXSlider.Value = _state.InfoOffsetX; InfoOffsetYSlider.Value = _state.InfoOffsetY;
         QualitySlider.Value = _state.Quality; HeadBox.Value = _state.Head; TailBox.Value = _state.Tail;
+        CustomWidthBox.Value = _state.CustomStageWidth; CustomHeightBox.Value = _state.CustomStageHeight;
         ShowSongInfoToggle.IsOn = _state.ShowSongInfo; ShowArtworkToggle.IsOn = _state.ShowArtwork;
         ShowArtistToggle.IsOn = _state.ShowArtist; ShowAlbumToggle.IsOn = _state.ShowAlbum;
         ShowControlsToggle.IsOn = _state.ShowControls;
         LyricFadeSlider.Value = _state.LyricFade;
-        SelectItem(PresetCombo, StagePresets.Resolve(_state.Preset));
+        SyncPresetSelection();
         SelectValue(FontWeightCombo, _state.FontWeight); SelectValue(SecondaryModeCombo, _state.SecondaryMode);
         SelectValue(LyricAlignCombo, _state.LyricAlign); SelectValue(BrowserGpuCombo, _state.BrowserGpu);
         SelectValue(AudioCodecCombo, _state.AudioCodec); SelectValue(AudioBitrateCombo, _state.AudioBitrate);
         SyncAssetBadges();
+        SyncCustomSizeVisibility();
+    }
+
+    private void SyncPresetSelection()
+    {
+        if (_state is null) return;
+        var options = (PresetCombo.ItemsSource as IEnumerable<PresetOption> ?? BuildPresetOptions()).ToList();
+        PresetCombo.ItemsSource = options;
+        PresetCombo.SelectedItem = options.FirstOrDefault(option => option.Preset.Id == _state.Preset);
+    }
+
+    private void SyncCustomSizeVisibility()
+    {
+        bool custom = _state is not null && _state.Preset == StagePresets.CustomId;
+        CustomSizePanel.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async Task LoadEncodersAsync(CancellationToken cancellationToken)
@@ -289,7 +415,7 @@ public sealed partial class ExportPage : UserControl
             if (options.All(x => !x.IsAvailable))
             {
                 string reason = options.Select(x => x.FailureReason).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))
-                    ?? "未探测到可用的视频编码器。";
+                    ?? LocalizationService.T("Export.NoEncoder");
                 ShowInfo(reason, InfoBarSeverity.Warning);
             }
         }
@@ -300,7 +426,7 @@ public sealed partial class ExportPage : UserControl
         catch (Exception ex)
         {
             if (!cancellationToken.IsCancellationRequested && IsLoaded)
-                ShowInfo($"编码器探测失败：{ex.Message}", InfoBarSeverity.Warning);
+                ShowInfo(LocalizationService.T("Export.ProbeFailed", ex.Message), InfoBarSeverity.Warning);
         }
     }
 
@@ -317,13 +443,21 @@ public sealed partial class ExportPage : UserControl
     private void SyncAssetBadges()
     {
         if (_state is null) return;
-        AudioBadge.Text = _state.HasAudio ? Path.GetFileName(_state.AudioPath) : "未选择";
-        LyricBadge.Text = string.IsNullOrWhiteSpace(_state.LyricPath) ? "未选择" : Path.GetFileName(_state.LyricPath);
-        CoverBadge.Text = string.IsNullOrWhiteSpace(_state.CoverPath) ? "未选择" : Path.GetFileName(_state.CoverPath);
+        string notSelected = LocalizationService.T("Export.NotSelected");
+        AudioBadge.Text = _state.HasAudio ? Path.GetFileName(_state.AudioPath) : notSelected;
+        LyricBadge.Text = string.IsNullOrWhiteSpace(_state.LyricPath) ? notSelected : Path.GetFileName(_state.LyricPath);
+        CoverBadge.Text = string.IsNullOrWhiteSpace(_state.CoverPath) ? notSelected : Path.GetFileName(_state.CoverPath);
     }
 
     private void OnConfigurationChanged(object sender, object e)
     {
+        if (ReferenceEquals(sender, PresetCombo) && _ready)
+        {
+            // 直接读下拉选择而非 _state：PushToState 尚未把新预设写回 state。
+            bool custom = PresetCombo.SelectedItem is PresetOption preset &&
+                preset.Preset.Id == StagePresets.CustomId;
+            CustomSizePanel.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
+        }
         if (ReferenceEquals(sender, EncoderCombo) && EncoderCombo.SelectedItem is EncoderOption encoder)
             UpdateEncoderPresets(encoder, preserveCurrent: false);
         UpdateLabels();
@@ -338,6 +472,11 @@ public sealed partial class ExportPage : UserControl
     }
 
     private void OnFontFamilyLostFocus(object sender, RoutedEventArgs e) => PushToState();
+
+    private void OnFontPreviewTextLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is TextBlock text) text.Text = LocalizationService.T("Export.FontPreview");
+    }
 
     private void UpdateEncoderPresets(EncoderOption option, bool preserveCurrent)
     {
@@ -354,25 +493,49 @@ public sealed partial class ExportPage : UserControl
     }
 
     private void OnConfigurationRangeChanged(object sender, RangeBaseValueChangedEventArgs e) { UpdateLabels(); PushToState(); }
-    private void OnNumberConfigurationChanged(NumberBox sender, NumberBoxValueChangedEventArgs args) => PushToState();
+
+    private void OnNumberConfigurationChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        PushToState();
+        if (ReferenceEquals(sender, CustomWidthBox) || ReferenceEquals(sender, CustomHeightBox))
+        {
+            // state 端规范化（取偶/越界回退）后把有效值回写到输入框，避免 UI 显示与实际生效尺寸不一致。
+            if (_state is not null)
+            {
+                _syncing = true;
+                try
+                {
+                    if (!double.IsNaN(CustomWidthBox.Value) && Math.Abs(CustomWidthBox.Value - _state.CustomStageWidth) > 0.5)
+                        CustomWidthBox.Value = _state.CustomStageWidth;
+                    if (!double.IsNaN(CustomHeightBox.Value) && Math.Abs(CustomHeightBox.Value - _state.CustomStageHeight) > 0.5)
+                        CustomHeightBox.Value = _state.CustomStageHeight;
+                }
+                finally { _syncing = false; }
+            }
+            SyncPresetSelection();
+        }
+    }
 
     private void UpdateLabels()
     {
         if (!_ready && !_syncing) return;
-        FpsLabel.Text = $"帧率：{FpsSlider.Value:0} FPS";
-        ArtworkScaleLabel.Text = $"封面缩放：{ArtworkScaleSlider.Value * 100:0}%";
-        FlowLabel.Text = $"背景流速：{FlowSlider.Value:0.0}";
-        RenderScaleLabel.Text = $"渲染倍率：{RenderScaleSlider.Value:0.00}×";
-        FontScaleLabel.Text = $"字号缩放：{FontScaleSlider.Value * 100:0}%";
-        LyricOffsetLabel.Text = $"垂直偏移：{LyricOffsetSlider.Value:0} px";
-        LyricWidthLabel.Text = $"歌词区域宽度：{LyricWidthSlider.Value:0}%";
+        FpsLabel.Text = LocalizationService.T("Export.Fps", FpsSlider.Value);
+        ArtworkScaleLabel.Text = LocalizationService.T("Export.ArtworkScale", ArtworkScaleSlider.Value * 100);
+        FlowLabel.Text = LocalizationService.T("Export.Flow", FlowSlider.Value);
+        RenderScaleLabel.Text = LocalizationService.T("Export.RenderScale", RenderScaleSlider.Value);
+        FontScaleLabel.Text = LocalizationService.T("Export.FontScale", FontScaleSlider.Value * 100);
+        LyricOffsetLabel.Text = LocalizationService.T("Export.LyricOffset", LyricOffsetSlider.Value);
+        LyricWidthLabel.Text = LocalizationService.T("Export.LyricWidth", LyricWidthSlider.Value);
+        LyricHeightLabel.Text = LocalizationService.T("Export.LyricHeight", LyricHeightSlider.Value);
+        InfoOffsetXLabel.Text = LocalizationService.T("Export.InfoOffsetX", InfoOffsetXSlider.Value);
+        InfoOffsetYLabel.Text = LocalizationService.T("Export.InfoOffsetY", InfoOffsetYSlider.Value);
         LyricFadeLabel.Text = LyricFadeSlider.Value <= 0
-            ? "上下边缘羽化：关闭"
-            : $"上下边缘羽化：{LyricFadeSlider.Value:P0}";
-        BackgroundDimLabel.Text = $"背景压暗：{BackgroundDimSlider.Value * 100:0}%";
-        BackgroundSaturationLabel.Text = $"背景饱和度：{BackgroundSaturationSlider.Value * 100:0}%";
-        BackgroundBlurLabel.Text = $"背景模糊：{BackgroundBlurSlider.Value:0} px";
-        QualityLabel.Text = $"质量：{QualitySlider.Value:0}（越小越清晰）";
+            ? LocalizationService.T("Export.LyricFadeOff")
+            : LocalizationService.T("Export.LyricFade", LyricFadeSlider.Value.ToString("P0"));
+        BackgroundDimLabel.Text = LocalizationService.T("Export.BackgroundDim", BackgroundDimSlider.Value * 100);
+        BackgroundSaturationLabel.Text = LocalizationService.T("Export.BackgroundSaturation", BackgroundSaturationSlider.Value * 100);
+        BackgroundBlurLabel.Text = LocalizationService.T("Export.BackgroundBlur", BackgroundBlurSlider.Value);
+        QualityLabel.Text = LocalizationService.T("Export.Quality", QualitySlider.Value);
     }
 
     private void PushToState()
@@ -391,6 +554,8 @@ public sealed partial class ExportPage : UserControl
             _state.ShowArtist = ShowArtistToggle.IsOn; _state.ShowAlbum = ShowAlbumToggle.IsOn;
             _state.ShowControls = ShowControlsToggle.IsOn; _state.LyricAlign = Selected<string>(LyricAlignCombo, "left");
             _state.LyricOffset = LyricOffsetSlider.Value; _state.LyricWidth = LyricWidthSlider.Value;
+            _state.LyricHeight = LyricHeightSlider.Value;
+            _state.InfoOffsetX = InfoOffsetXSlider.Value; _state.InfoOffsetY = InfoOffsetYSlider.Value;
             _state.LyricFade = LyricFadeSlider.Value;
             _state.BackgroundDim = BackgroundDimSlider.Value; _state.BackgroundSaturation = BackgroundSaturationSlider.Value;
             _state.BackgroundBlur = BackgroundBlurSlider.Value; _state.Quality = (int)QualitySlider.Value;
@@ -399,7 +564,15 @@ public sealed partial class ExportPage : UserControl
             _state.AudioCodec = Selected<string>(AudioCodecCombo, RenderContracts.DefaultAudioCodec);
             _state.AudioBitrate = Selected<string>(AudioBitrateCombo, "320k");
             _state.BrowserGpu = Selected<string>(BrowserGpuCombo, RenderContracts.DefaultBrowserGpu);
-            if (PresetCombo.SelectedItem is StagePreset preset) _state.Preset = preset.Id;
+            if (PresetCombo.SelectedItem is PresetOption preset)
+            {
+                _state.Preset = preset.Preset.Id;
+                if (preset.Preset.Id == StagePresets.CustomId)
+                {
+                    if (!double.IsNaN(CustomWidthBox.Value)) _state.CustomStageWidth = (int)CustomWidthBox.Value;
+                    if (!double.IsNaN(CustomHeightBox.Value)) _state.CustomStageHeight = (int)CustomHeightBox.Value;
+                }
+            }
             if (EncoderCombo.SelectedItem is EncoderOption encoder && encoder.IsAvailable)
             {
                 _state.Encoder = encoder.Id;
@@ -413,32 +586,32 @@ public sealed partial class ExportPage : UserControl
 
     private static T Selected<T>(ComboBox combo, T fallback) => combo.SelectedItem is T value ? value : fallback;
     private static void SelectValue<T>(ComboBox combo, T value) => combo.SelectedItem = value;
-    private static void SelectItem(ComboBox combo, object value) => combo.SelectedItem = value;
 
     private void OnStart(object sender, RoutedEventArgs e)
     {
         if (_state is null || _runner is null) return;
         if (!_state.HasAudio || !File.Exists(_state.AudioPath))
         {
-            ShowInfo("请先选择有效的音频文件。", InfoBarSeverity.Warning); return;
+            ShowInfo(LocalizationService.T("Export.SelectAudioFirst"), InfoBarSeverity.Warning); return;
         }
-        if (_runner.IsRunning) { ShowInfo("已有渲染任务正在运行。", InfoBarSeverity.Warning); return; }
+        if (_runner.IsRunning) { ShowInfo(LocalizationService.T("Export.TaskRunning"), InfoBarSeverity.Warning); return; }
         if (EncoderCombo.SelectedItem is not EncoderOption { IsAvailable: true } selectedEncoder)
         {
-            ShowInfo("请选择可用的视频编码器。", InfoBarSeverity.Warning); return;
+            ShowInfo(LocalizationService.T("Export.SelectEncoder"), InfoBarSeverity.Warning); return;
         }
         PushToState();
         if (!HasRequiredTitle(_state.Title))
         {
-            ShowInfo("歌曲标题为必填项；艺术家、专辑、歌词和封面均可留空。", InfoBarSeverity.Warning); return;
+            ShowInfo(LocalizationService.T("Export.TitleRequired"), InfoBarSeverity.Warning); return;
         }
-        StagePreset canvas = StagePresets.Resolve(_state.Preset);
+        (int canvasWidth, int canvasHeight) = StagePresets.EffectiveDimensions(
+            _state.Preset, _state.CustomStageWidth, _state.CustomStageHeight);
         if (!RenderContracts.TryResolveGuiOutputPath(
-            OutputBox.Text, _state.ProjectRoot, _state.AudioPath!, canvas.Width, canvas.Height, _state.Fps,
+            OutputBox.Text, _state.ProjectRoot, _state.AudioPath!, canvasWidth, canvasHeight, _state.Fps,
             out string? outputPath, out string? outputError))
         {
             _overwriteConfirmedKey = null;
-            ShowInfo(outputError ?? "输出路径无效。", InfoBarSeverity.Warning); return;
+            ShowInfo(outputError ?? LocalizationService.T("Export.OutputInvalid"), InfoBarSeverity.Warning); return;
         }
         string? compatibilityError = RenderContracts.GetAudioOutputError(
             outputPath!, _state.AudioCodec, _state.Head, _state.Tail);
@@ -455,7 +628,7 @@ public sealed partial class ExportPage : UserControl
             // ffmpeg 以 -y 无条件覆盖：首次点击先提示，再次点击才真正覆盖；
             // key 绑定 canonical path 与关键配置，输出文本/编解码/时长/画布变化后不会误沿用旧确认
             _overwriteConfirmedKey = overwriteKey;
-            ShowInfo($"输出文件已存在：{Path.GetFileName(canonicalOutput)}。再次点击「开始渲染」将覆盖该文件。", InfoBarSeverity.Warning);
+            ShowInfo(LocalizationService.T("Export.Overwrite", Path.GetFileName(canonicalOutput)), InfoBarSeverity.Warning);
             return;
         }
         _overwriteConfirmedKey = null;
@@ -467,10 +640,10 @@ public sealed partial class ExportPage : UserControl
         try
         {
             _runner.Start(request, selectedEncoder.SupportedPresets); StartButton.IsEnabled = false; CancelButton.IsEnabled = true;
-            SetStatus("正在启动渲染…", "启动");
+            SetStatus("Export.StartingRender", "Export.StageBoot");
             if (_state.AudioCodec != "copy") TaskInfoBar.IsOpen = false;
         }
-        catch (Exception ex) { ShowInfo($"启动失败：{ex.Message}", InfoBarSeverity.Error); }
+        catch (Exception ex) { ShowInfo(LocalizationService.T("Export.LaunchFailed", ex.Message), InfoBarSeverity.Error); }
     }
 
     internal static bool HasRequiredTitle(string? title) => AppState.IsTitleValid(title);
@@ -487,9 +660,13 @@ public sealed partial class ExportPage : UserControl
             ShowSongInfo = state.ShowSongInfo, ShowArtist = state.ShowArtist, ShowAlbum = state.ShowAlbum,
             ShowArtwork = state.ShowArtwork, ShowControls = state.ShowControls,
             ArtworkScale = state.ArtworkScale, LyricAlign = state.LyricAlign, LyricOffset = state.LyricOffset,
-            LyricWidth = state.LyricWidth, LyricFade = state.LyricFade, BackgroundDim = state.BackgroundDim,
+            LyricWidth = state.LyricWidth, LyricHeight = state.LyricHeight,
+            InfoOffsetX = state.InfoOffsetX, InfoOffsetY = state.InfoOffsetY,
+            LyricFade = state.LyricFade, BackgroundDim = state.BackgroundDim,
             BackgroundSaturation = state.BackgroundSaturation, BackgroundBlur = state.BackgroundBlur,
             FlowSpeed = state.FlowSpeed, RenderScale = state.RenderScale, Preset = state.Preset, Fps = state.Fps,
+            StageWidth = state.Preset == StagePresets.CustomId ? state.CustomStageWidth : null,
+            StageHeight = state.Preset == StagePresets.CustomId ? state.CustomStageHeight : null,
             Tail = state.Tail, Head = state.Head, Encoder = encoder, EncoderPreset = encoderPreset, Quality = state.Quality,
             AudioCodec = state.AudioCodec, AudioBitrate = state.AudioBitrate, BrowserGpu = state.BrowserGpu,
         };
@@ -500,22 +677,30 @@ public sealed partial class ExportPage : UserControl
     /// <summary>覆盖确认绑定 canonical 输出路径与影响输出的关键配置；任一变化即要求重新确认。</summary>
     private static string BuildOverwriteKey(string canonicalOutput, AppState state) =>
         string.Join("|", canonicalOutput, state.AudioCodec, state.Head, state.Tail,
-            StagePresets.Resolve(state.Preset).Id, state.Fps, state.AudioPath ?? "");
+            StagePresets.Resolve(state.Preset).Id, state.CustomStageWidth, state.CustomStageHeight,
+            state.Fps, state.AudioPath ?? "");
 
-    private void OnCancel(object sender, RoutedEventArgs e) { _runner?.Cancel(); SetStatus("正在取消…", "取消"); }
+    private void OnCancel(object sender, RoutedEventArgs e)
+    {
+        _runner?.Cancel();
+        SetStatus("Export.Canceling", "Export.StageCancel");
+    }
 
     /// <summary>ffmpeg 以 -y 无条件覆盖输出；输入/输出同路径会同时读写损坏源文件，必须在启动前拦截。</summary>
     private static string? GetOutputConflict(string outputPath, AppState state)
     {
-        if (!Path.IsPathFullyQualified(outputPath)) return "输出路径必须是绝对路径。";
+        if (!Path.IsPathFullyQualified(outputPath)) return LocalizationService.T("Export.OutputMustBeAbsolute");
         string fullOutput = Path.TrimEndingDirectorySeparator(outputPath);
-        foreach ((string? path, string label) in new[] { (state.AudioPath, "音频"), (state.LyricPath, "歌词"), (state.CoverPath, "封面") })
+        foreach ((string? path, string labelKey) in new[]
+        {
+            (state.AudioPath, "Export.AssetAudio"), (state.LyricPath, "Export.AssetLyric"), (state.CoverPath, "Export.AssetCover"),
+        })
         {
             if (string.IsNullOrWhiteSpace(path)) continue;
             string fullPath;
             try { fullPath = Path.GetFullPath(path); } catch { continue; }
             if (string.Equals(fullPath, fullOutput, StringComparison.OrdinalIgnoreCase))
-                return $"输出文件不能与{label}文件是同一个文件：{fullPath}";
+                return LocalizationService.T("Export.OutputSameAsAsset", LocalizationService.T(labelKey), fullPath);
         }
         return null;
     }
@@ -524,21 +709,31 @@ public sealed partial class ExportPage : UserControl
     {
         switch (args.Stage)
         {
-            case "server": SetStatus("正在加载页面…", "本地服务"); Progress.Value = 1; break;
+            case "server":
+                SetStatus("Export.LoadingPage", "Export.StageServer");
+                Progress.Value = 1; break;
             case "ready":
-                SetStatus("素材已就绪", "准备抓帧"); Progress.Value = 2;
-                ProgressDetailText.Text = $"音频时长 {args.TotalMs / 1000.0:0.0} s · 歌词 {args.LyricLines} 行"; break;
+                SetStatus("Export.AssetReady", "Export.StagePrepare");
+                Progress.Value = 2;
+                ProgressDetailText.Text = LocalizationService.T("Export.ReadyDetail", args.TotalMs / 1000.0, args.LyricLines); break;
             case "capture":
-                SetStatus("正在逐帧抓取", "抓帧"); Progress.Value = Math.Clamp(args.Percent, 0, 99);
-                ProgressDetailText.Text = $"{args.Frames} 帧 · {args.ElapsedMs / 1000.0:0.0} s / {args.TotalMs / 1000.0:0.0} s"; break;
-            case "encode": SetStatus("正在编码与合成音轨", "编码"); Progress.Value = 99; break;
+                SetStatus("Export.Capturing", "Export.StageCapture");
+                Progress.Value = Math.Clamp(args.Percent, 0, 99);
+                ProgressDetailText.Text = LocalizationService.T("Export.CaptureDetail", args.Frames, args.ElapsedMs / 1000.0, args.TotalMs / 1000.0); break;
+            case "encode":
+                SetStatus("Export.EncodingStage", "Export.StageEncode");
+                Progress.Value = 99; break;
             case "done":
-                Progress.Value = 100; _lastOutputPath = args.OutputPath; SetStatus("渲染完成", "完成");
-                ProgressDetailText.Text = $"{args.OutputPath} · {args.Bytes / 1024.0 / 1024.0:0.0} MB · {args.Frames} 帧";
+                Progress.Value = 100; _lastOutputPath = args.OutputPath;
+                SetStatus("Export.RenderDone", "Export.StageDone");
+                ProgressDetailText.Text = LocalizationService.T("Export.DoneDetail", args.OutputPath, args.Bytes / 1024.0 / 1024.0, args.Frames);
                 OpenOutputButton.IsEnabled = !string.IsNullOrWhiteSpace(args.OutputPath);
                 PlayResultButton.IsEnabled = !string.IsNullOrWhiteSpace(args.OutputPath);
-                ShowInfo("成片已成功导出。", InfoBarSeverity.Success); break;
-            case "error": SetStatus("渲染失败", "错误"); AppendLog("错误：" + args.Error); ShowInfo(args.Error ?? "渲染失败。", InfoBarSeverity.Error); break;
+                ShowInfo(LocalizationService.T("Export.Success"), InfoBarSeverity.Success); break;
+            case "error":
+                SetStatus("Export.RenderFailed", "Export.StageError");
+                AppendLog(LocalizationService.T("Export.LogError", args.Error));
+                ShowInfo(args.Error ?? LocalizationService.T("Export.RenderFailedGeneric"), InfoBarSeverity.Error); break;
         }
     });
 
@@ -549,8 +744,8 @@ public sealed partial class ExportPage : UserControl
         StartButton.IsEnabled = true; CancelButton.IsEnabled = false;
         if (!success && Progress.Value < 100)
         {
-            SetStatus("渲染中断或失败", "已结束");
-            ShowInfo("任务未成功完成，请查看日志。", InfoBarSeverity.Error);
+            SetStatus("Export.RenderFailed", "Export.StageEnded");
+            ShowInfo(LocalizationService.T("Export.NotCompleted"), InfoBarSeverity.Error);
         }
     });
 
@@ -567,7 +762,17 @@ public sealed partial class ExportPage : UserControl
         LogScroll.ChangeView(null, LogScroll.ScrollableHeight, null);
     }
 
-    private void SetStatus(string status, string stage) { StatusText.Text = status; StageText.Text = $"阶段：{stage}"; }
+    private string _lastStatusKey = "Export.Ready";
+    private string _lastStageKey = "Export.WaitingStart";
+
+    /// <summary>状态文本按键存储：语言切换时 ApplyLocalization 可用当前键重新渲染。</summary>
+    private void SetStatus(string statusKey, string stageKey)
+    {
+        _lastStatusKey = statusKey; _lastStageKey = stageKey;
+        StatusText.Text = LocalizationService.T(statusKey);
+        StageText.Text = $"{LocalizationService.T("Export.StagePrefix")}{LocalizationService.T(stageKey)}";
+    }
+
     private void ShowInfo(string message, InfoBarSeverity severity)
     {
         TaskInfoBar.Message = message; TaskInfoBar.Severity = severity; TaskInfoBar.IsOpen = true;
@@ -576,25 +781,44 @@ public sealed partial class ExportPage : UserControl
     private void OnOpenOutput(object sender, RoutedEventArgs e)
     {
         if (!string.IsNullOrWhiteSpace(_lastOutputPath) && !ShellReveal.RevealInExplorer(_lastOutputPath))
-            ShowInfo("无法在资源管理器中定位输出文件。", InfoBarSeverity.Warning);
+            ShowInfo(LocalizationService.T("Export.LocateFailed"), InfoBarSeverity.Warning);
     }
 
     private async void OnPlayResult(object sender, RoutedEventArgs e)
     {
         if (!string.IsNullOrWhiteSpace(_lastOutputPath) && !await ShellReveal.OpenMediaFileAsync(_lastOutputPath))
-            ShowInfo("无法使用默认播放器打开成片。", InfoBarSeverity.Warning);
+            ShowInfo(LocalizationService.T("Export.PlayFailed"), InfoBarSeverity.Warning);
     }
 
-    private async Task ApplyPickedAssetAsync(Func<string?> getCurrentPath, Action<string> setPath, IReadOnlyCollection<string> extensions, PickerLocationId location)
+    private async Task<string?> ApplyPickedAssetAsync(Func<string?> getCurrentPath, Action<string> setPath, IReadOnlyCollection<string> extensions, PickerLocationId location)
     {
         string? path = await PickFileAsync(extensions, location);
-        if (path is null || _state is null) return;
+        if (path is null || _state is null) return null;
         if (string.Equals(getCurrentPath(), path, StringComparison.OrdinalIgnoreCase)) _state.NotifyAssetReselected(path);
         else setPath(path);
+        return path;
     }
 
-    private async void OnPickAudio(object sender, RoutedEventArgs e) =>
-        await ApplyPickedAssetAsync(() => _state?.AudioPath, value => _state!.AudioPath = value, AudioExtensions, PickerLocationId.MusicLibrary);
+    private async void OnPickAudio(object sender, RoutedEventArgs e)
+    {
+        string? path = await ApplyPickedAssetAsync(() => _state?.AudioPath, value => _state!.AudioPath = value, AudioExtensions, PickerLocationId.MusicLibrary);
+        // 取消选择（path 为 null）不应触发标题填充。
+        if (path is not null) AutoFillTitleFromAudio();
+    }
+
+    /// <summary>选中音频后默认用文件名填充标题：仅在标题为空，或仍等于上一次自动填充值时生效，绝不覆盖手输内容。</summary>
+    private void AutoFillTitleFromAudio()
+    {
+        if (_state?.AudioPath is not { } path) return;
+        string stem = Path.GetFileNameWithoutExtension(path).Trim();
+        if (stem.Length == 0) return;
+        string current = TitleBox.Text.Trim();
+        if (current.Length == 0 || string.Equals(current, _autoFilledTitle, StringComparison.Ordinal))
+        {
+            _autoFilledTitle = stem;
+            TitleBox.Text = stem;
+        }
+    }
 
     private async void OnPickLyric(object sender, RoutedEventArgs e) =>
         await ApplyPickedAssetAsync(() => _state?.LyricPath, value => _state!.LyricPath = value, LyricExtensions, PickerLocationId.DocumentsLibrary);

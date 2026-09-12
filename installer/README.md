@@ -14,12 +14,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 The default build performs a clean `npm ci`, `npm run build`, self-contained
 `dotnet publish -c Release -r win-x64`, downloads and verifies pinned runtimes
-(Node, Chromium, WebView2), verifies the locally built static FFmpeg 8.1.2
-archive against its pinned SHA-256 (produced by
-`installer/cache/amll-ffmpeg-build-source/build.sh`), installs Playwright
-Chromium into staging, runs package smoke tests, then calls Inno Setup 6. Use
-`-Lite` to omit bundled Chromium and verify rendering through the system
-Microsoft Edge (or Google Chrome fallback). Generated paths:
+(Node, Chromium, WebView2), verifies the Gyan "essentials" static FFmpeg 8.1.2
+archive against its pinned SHA-256 (the prebuilt binary provides the
+AMF/NVENC/QSV hardware encoders plus libx264/libx265; provenance and the
+corresponding-source offer live in `installer/cache/gyan-build-source`),
+installs Playwright Chromium into staging, runs package smoke tests, then calls
+Inno Setup 6. Use `-Lite` to omit bundled Chromium and verify rendering through
+the system Microsoft Edge (or Google Chrome fallback). Generated paths:
 
 - `installer/staging/` — unpacked standalone application tree for the latest build.
 - `installer/output/AMLL-Lyric-MV-Studio-<version>-x64-Setup.exe` — Full installer.
@@ -103,16 +104,17 @@ for targeted diagnosis; release builds use all checks.
 
 After both variants pass, `finalize-release.ps1` creates the source/release set
 once rather than repeating large source archives per variant. It refuses to
-finalize without authenticated FFmpeg 8.1.2 source, the exact x264 source, and
-the complete self-built FFmpeg corresponding-source closure
-(`amll-ffmpeg-build-source` with `build.sh`), verified hash-by-hash.
+finalize without an authenticated FFmpeg 8.1.2 upstream source and the complete
+FFmpeg source-offer bundle (`gyan-build-source`), which pins the distributed
+binary archive and every resolvable upstream library source hash-by-hash.
 
 ## Distribution obligations
 
 Read `NOTICE.txt`, `LICENSE.txt`, `COPYING.GPLv3.txt`, and
-`THIRD-PARTY-NOTICES.md`. AMLL is AGPL-3.0-only and the bundled FFmpeg is a
-self-built static 8.1.2 GPL build (libx264-linked) whose complete
-Corresponding Source (`ffmpeg-8.1.2-corresponding-source/`, including
-`build.sh`) ships with the release. Do not distribute the binary installer
+`THIRD-PARTY-NOTICES.md`. AMLL is AGPL-3.0-only and the bundled FFmpeg is the
+Gyan "essentials" statically linked 8.1.2 GPL build (libx264/libx265 plus
+AMF/NVENC/QSV) whose corresponding-source offer
+(`ffmpeg-8.1.2-source-offer/`, pinning the binary archive and every resolvable
+upstream source) ships with the release. Do not distribute the binary installer
 without that bundle; do not describe the package as closed-source or
 unrestricted proprietary software.

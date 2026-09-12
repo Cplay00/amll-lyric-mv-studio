@@ -16,13 +16,19 @@ public static class RenderContracts
     public const string AudioCopyOffsetWarning = "音频 copy 仅支持 MKV 输出，且片头与片尾留白必须均为 0 ms；若音频与首帧存在时间偏移，渲染仍可能失败，建议使用 AAC。";
 
     public const double MinLyricWidth = 30;
-    public const double MaxLyricWidth = 80;
+    public const double MaxLyricWidth = 100;
     public const double MinLyricFade = 0;
     public const double MaxLyricFade = 0.3;
     public const double MinLyricOffset = -600;
     public const double MaxLyricOffset = 600;
     public const double MinBackgroundSaturation = 0;
     public const double MaxBackgroundSaturation = 2;
+    public const double MinInfoOffset = -30;
+    public const double MaxInfoOffset = 30;
+    public const double MinLyricHeight = 20;
+    public const double MaxLyricHeight = 100;
+    public const int MinStageSize = 256;
+    public const int MaxStageSize = 8192;
 
     public static readonly IReadOnlyList<string> SecondaryModes = ReadOnly("none", "translation", "roman", "both");
     public static readonly IReadOnlyList<string> BrowserGpuModes = ReadOnly("auto", "on", "off");

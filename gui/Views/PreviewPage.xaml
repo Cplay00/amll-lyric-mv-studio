@@ -18,14 +18,14 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel Spacing="4">
-                <TextBlock Text="实时预览" Style="{StaticResource TitleTextBlockStyle}" />
-                <TextBlock Text="素材或工作台设置变更后将自动刷新舞台。" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock x:Name="PageTitleText" Text="实时预览" Style="{StaticResource TitleTextBlockStyle}" />
+                <TextBlock x:Name="PageSubtitleText" Text="素材或工作台设置变更后将自动刷新舞台。" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
             <Button Grid.Column="1" x:Name="ReloadButton" Click="OnReload"
                     ToolTipService.ToolTip="立即重新载入预览" AutomationProperties.Name="重新载入预览">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <SymbolIcon Symbol="Refresh" />
-                    <TextBlock Text="刷新" />
+                    <TextBlock x:Name="ReloadButtonText" Text="刷新" />
                 </StackPanel>
             </Button>
         </Grid>
@@ -40,18 +40,18 @@
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" x:Name="PickAudioButton" Click="OnPickAudio"
                         ToolTipService.ToolTip="选择 MP3、FLAC、M4A、AAC、WAV、OGG 或 OPUS 音频">
-                    <StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Audio" /><TextBlock Text="音频" /></StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Audio" /><TextBlock x:Name="AudioButtonText" Text="音频" /></StackPanel>
                 </Button>
                 <Button Grid.Column="1" x:Name="PickLyricButton" Click="OnPickLyric"
                         ToolTipService.ToolTip="选择 TTML、LRC、YRC 等歌词文件">
-                    <StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Document" /><TextBlock Text="歌词" /></StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Document" /><TextBlock x:Name="LyricButtonText" Text="歌词" /></StackPanel>
                 </Button>
                 <Button Grid.Column="2" x:Name="PickCoverButton" Click="OnPickCover"
                         ToolTipService.ToolTip="选择 JPG、PNG、WEBP 或 GIF 封面">
-                    <StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Pictures" /><TextBlock Text="封面" /></StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Pictures" /><TextBlock x:Name="CoverButtonText" Text="封面" /></StackPanel>
                 </Button>
                 <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="2">
-                    <TextBlock Text="当前素材" FontWeight="SemiBold" />
+                    <TextBlock x:Name="CurrentAssetsText" Text="当前素材" FontWeight="SemiBold" />
                     <TextBlock x:Name="AssetSummaryText" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                TextTrimming="CharacterEllipsis" Text="尚未载入素材" />
                 </StackPanel>
@@ -64,8 +64,8 @@
                 <StackPanel x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center"
                             Spacing="10" MaxWidth="520" Padding="24">
                     <FontIcon Glyph="&#xE768;" FontSize="38" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                    <TextBlock Text="载入素材以开始预览" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                    <TextBlock Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" TextAlignment="Center"
+                    <TextBlock x:Name="EmptyTitleText" Text="载入素材以开始预览" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                    <TextBlock x:Name="EmptyHintText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" TextAlignment="Center"
                                Text="先选择音频，再按需添加歌词与封面。预览将使用导出页中的舞台、歌词和背景设置。" />
                     <TextBlock x:Name="BuildHintText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                TextWrapping="Wrap" TextAlignment="Center" Visibility="Collapsed" />

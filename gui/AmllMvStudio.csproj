@@ -18,9 +18,9 @@
     <!-- 自动引入 System / System.IO / System.Linq / System.Threading.Tasks 等常用命名空间 -->
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>AmllMvStudio</AssemblyName>
-    <Version>0.2.0</Version>
-    <AssemblyVersion>0.2.0.0</AssemblyVersion>
-    <FileVersion>0.2.0.0</FileVersion>
+    <Version>0.2.1</Version>
+    <AssemblyVersion>0.2.1.0</AssemblyVersion>
+    <FileVersion>0.2.1.0</FileVersion>
     <Product>AMLL Lyric MV Studio</Product>
     <Title>AMLL Lyric MV Studio</Title>
     <AssemblyTitle>AMLL Lyric MV Studio</AssemblyTitle>

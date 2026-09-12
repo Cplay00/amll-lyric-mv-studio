@@ -109,6 +109,31 @@ public sealed partial class PreviewPage : UserControl
         _ = EnsureWebViewAsync();
     }
 
+    /// <summary>语言切换回调：刷新页面静态文案与素材摘要。</summary>
+    public void ApplyLocalization()
+    {
+        PageTitleText.Text = LocalizationService.T("Preview.Title");
+        PageSubtitleText.Text = LocalizationService.T("Preview.Subtitle");
+        ReloadButtonText.Text = LocalizationService.T("Preview.ReloadButton");
+        ToolTipService.SetToolTip(ReloadButton, LocalizationService.T("Preview.ReloadTooltip"));
+        AudioButtonText.Text = LocalizationService.T("Preview.Audio");
+        ToolTipService.SetToolTip(PickAudioButton, LocalizationService.T("Preview.AudioTooltip"));
+        LyricButtonText.Text = LocalizationService.T("Preview.Lyric");
+        ToolTipService.SetToolTip(PickLyricButton, LocalizationService.T("Preview.LyricTooltip"));
+        CoverButtonText.Text = LocalizationService.T("Preview.Cover");
+        ToolTipService.SetToolTip(PickCoverButton, LocalizationService.T("Preview.CoverTooltip"));
+        CurrentAssetsText.Text = LocalizationService.T("Preview.CurrentAssets");
+        EmptyTitleText.Text = LocalizationService.T("Preview.EmptyTitle");
+        EmptyHintText.Text = LocalizationService.T("Preview.EmptyHint");
+        ToolTipService.SetToolTip(ToStartButton, LocalizationService.T("Preview.ToStartTooltip"));
+        ToolTipService.SetToolTip(BackButton, LocalizationService.T("Preview.Back5Tooltip"));
+        ToolTipService.SetToolTip(PlayButton, LocalizationService.T("Preview.PlayTooltip"));
+        ToolTipService.SetToolTip(ForwardButton, LocalizationService.T("Preview.Forward5Tooltip"));
+        ToolTipService.SetToolTip(SeekSlider, LocalizationService.T("Preview.SeekTooltip"));
+        if (_state is not null) AssetSummaryText.Text = BuildSummary();
+        else AssetSummaryText.Text = LocalizationService.T("Preview.NoAssets");
+    }
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _isLoaded = true;
@@ -145,6 +170,11 @@ public sealed partial class PreviewPage : UserControl
     private void OnStatePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(AppState.ProjectRoot) or nameof(AppState.HasAudio)) return;
+        if (e.PropertyName is nameof(AppState.Preset) or nameof(AppState.CustomStageWidth) or nameof(AppState.CustomStageHeight))
+        {
+            // 舞台尺寸摘要立即刷新，不等下一次素材重载。
+            if (_state is not null) AssetSummaryText.Text = BuildSummary();
+        }
         if (IsAssetProperty(e.PropertyName))
         {
             RequestAssetRefresh();
@@ -172,10 +202,12 @@ public sealed partial class PreviewPage : UserControl
         nameof(AppState.SecondaryMode) or nameof(AppState.ShowSongInfo) or nameof(AppState.ShowArtist) or
         nameof(AppState.ShowAlbum) or nameof(AppState.ShowArtwork) or
         nameof(AppState.ShowControls) or nameof(AppState.ArtworkScale) or nameof(AppState.LyricAlign) or
-        nameof(AppState.LyricOffset) or nameof(AppState.LyricWidth) or nameof(AppState.LyricFade) or
+        nameof(AppState.LyricOffset) or nameof(AppState.LyricWidth) or nameof(AppState.LyricHeight) or
+        nameof(AppState.InfoOffsetX) or nameof(AppState.InfoOffsetY) or nameof(AppState.LyricFade) or
         nameof(AppState.BackgroundDim) or
         nameof(AppState.BackgroundSaturation) or nameof(AppState.BackgroundBlur) or nameof(AppState.FlowSpeed) or
-        nameof(AppState.RenderScale) or nameof(AppState.Preset) or nameof(AppState.Fps);
+        nameof(AppState.RenderScale) or nameof(AppState.Preset) or nameof(AppState.Fps) or
+        nameof(AppState.CustomStageWidth) or nameof(AppState.CustomStageHeight);
 
     private async void OnPatchTick(object? sender, object e)
     {
@@ -206,7 +238,7 @@ public sealed partial class PreviewPage : UserControl
                 EnterReadinessRecovery(
                     navigationGeneration,
                     navigationId,
-                    "预览桥接尚未启动，实时设置未能应用。页面就绪后将自动重试。");
+                    LocalizationService.T("Preview.BridgeNotReady"));
                 return;
             }
 
@@ -252,7 +284,7 @@ public sealed partial class PreviewPage : UserControl
             Stage.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             Stage.CoreWebView2.Settings.IsStatusBarEnabled = false;
             Stage.CoreWebView2.WebMessageReceived += (_, args) =>
-                DispatcherQueue.TryEnqueue(() => ShowDiagnostic($"预览页面错误：{args.TryGetWebMessageAsString()}"));
+                DispatcherQueue.TryEnqueue(() => ShowDiagnostic(LocalizationService.T("Preview.PageError", args.TryGetWebMessageAsString())));
             await Stage.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
                 "window.addEventListener('error',e=>chrome.webview.postMessage(e.message||'页面脚本异常'));" +
                 "window.addEventListener('unhandledrejection',e=>chrome.webview.postMessage(String(e.reason||'未处理的脚本异常')));");
@@ -262,7 +294,7 @@ public sealed partial class PreviewPage : UserControl
             Stage.CoreWebView2.Settings.AreDevToolsEnabled = false;
 #endif
             Stage.CoreWebView2.ProcessFailed += (_, args) =>
-                DispatcherQueue.TryEnqueue(() => ShowError($"预览进程异常：{args.ProcessFailedKind}"));
+                DispatcherQueue.TryEnqueue(() => ShowError(LocalizationService.T("Preview.ProcessFailed", args.ProcessFailedKind)));
             _webViewReady = true;
             LoadingRing.IsActive = false;
             UpdatePollTimer();
@@ -271,7 +303,7 @@ public sealed partial class PreviewPage : UserControl
         catch (Exception ex)
         {
             LoadingRing.IsActive = false;
-            ShowError($"WebView2 初始化失败：{ex.Message}");
+            ShowError(LocalizationService.T("Preview.WebViewFailed", ex.Message));
         }
     }
 
@@ -312,7 +344,7 @@ public sealed partial class PreviewPage : UserControl
         string rootIndex = Path.Combine(_state.ProjectRoot, "index.html");
         if (!File.Exists(distIndex) && !File.Exists(rootIndex))
         {
-            ShowError("找不到预览页面 dist/index.html。请确认发布内容完整，或在项目目录构建前端。");
+            ShowError(LocalizationService.T("Preview.NoDist"));
             return;
         }
 
@@ -334,11 +366,14 @@ public sealed partial class PreviewPage : UserControl
     private string BuildSummary()
     {
         string audio = Path.GetFileName(_state?.AudioPath ?? "");
-        string lyric = string.IsNullOrWhiteSpace(_state?.LyricPath) ? "无歌词" : Path.GetFileName(_state.LyricPath);
-        string cover = string.IsNullOrWhiteSpace(_state?.CoverPath) ? "无封面" : Path.GetFileName(_state.CoverPath);
-        StagePreset preset = StagePresets.Resolve(_state?.Preset);
-        FpsText.Text = $"{preset.Width} × {preset.Height} px · {_state?.Fps ?? 0} FPS";
-        return string.IsNullOrWhiteSpace(audio) ? "尚未载入素材" : $"{audio} · {lyric} · {cover}";
+        string lyric = string.IsNullOrWhiteSpace(_state?.LyricPath) ? LocalizationService.T("Preview.NoLyric") : Path.GetFileName(_state.LyricPath);
+        string cover = string.IsNullOrWhiteSpace(_state?.CoverPath) ? LocalizationService.T("Preview.NoCover") : Path.GetFileName(_state.CoverPath);
+        (int width, int height) = StagePresets.EffectiveDimensions(
+            _state?.Preset ?? "1080p", _state?.CustomStageWidth ?? 1920, _state?.CustomStageHeight ?? 1080);
+        FpsText.Text = $"{width} × {height} px · {_state?.Fps ?? 0} FPS";
+        return string.IsNullOrWhiteSpace(audio)
+            ? LocalizationService.T("Preview.NoAssets")
+            : LocalizationService.T("Preview.Summary", audio, lyric, cover);
     }
 
     private async Task<string?> EvalStringAsync(
@@ -428,7 +463,7 @@ public sealed partial class PreviewPage : UserControl
         if (!TryGetNavigationGeneration(args.Uri, out long navigationGeneration))
         {
             args.Cancel = true;
-            ShowDiagnostic("预览阻止了非预期的本地导航。");
+            ShowDiagnostic(LocalizationService.T("Preview.BlockedNav"));
             return;
         }
 
@@ -472,7 +507,7 @@ public sealed partial class PreviewPage : UserControl
         LoadingRing.IsActive = false;
         if (!args.IsSuccess)
         {
-            ShowError($"预览导航失败：{args.WebErrorStatus}");
+            ShowError(LocalizationService.T("Preview.NavFailed", args.WebErrorStatus));
             return;
         }
 
@@ -495,7 +530,7 @@ public sealed partial class PreviewPage : UserControl
                     if (error is not null)
                     {
                         _reportedReadinessError = error;
-                        ShowDiagnostic($"预览应用启动失败：{error}");
+                        ShowDiagnostic(LocalizationService.T("Preview.AppFailed", error));
                         _nextReadinessRecoveryAt = DateTimeOffset.UtcNow + ReadinessRecoveryInterval;
                         return;
                     }
@@ -507,7 +542,7 @@ public sealed partial class PreviewPage : UserControl
                 }
                 catch (JsonException ex)
                 {
-                    ShowDiagnostic($"预览启动诊断返回无效数据：{ex.Message}");
+                    ShowDiagnostic(LocalizationService.T("Preview.DiagnosticInvalid", ex.Message));
                     _nextReadinessRecoveryAt = DateTimeOffset.UtcNow + ReadinessRecoveryInterval;
                     return;
                 }
@@ -522,15 +557,15 @@ public sealed partial class PreviewPage : UserControl
         if (!IsCurrentNavigation(navigationGeneration, navigationId)) return;
         if (!hasDiagnostic)
         {
-            ShowDiagnostic("预览页面已加载，但无法执行诊断脚本。请检查 WebView2 运行时。");
+            ShowDiagnostic(LocalizationService.T("Preview.NoDiagnostic"));
             _nextReadinessRecoveryAt = DateTimeOffset.UtcNow + ReadinessRecoveryInterval;
             return;
         }
 
         bool appStarted = HasPreviewStarted(lastDiagnostic);
         ShowDiagnostic(appStarted
-            ? $"预览应用已启动，但舞台尚未就绪：{PreviewReadiness.Describe(lastDiagnostic)}"
-            : "预览页面已载入，但 React 或实时桥接未启动。请确认 dist 构建产物完整后刷新。");
+            ? LocalizationService.T("Preview.StageNotReady", PreviewReadiness.Describe(lastDiagnostic))
+            : LocalizationService.T("Preview.BridgeNotStarted"));
         if (IsCurrentNavigation(navigationGeneration, navigationId))
             _nextReadinessRecoveryAt = DateTimeOffset.UtcNow + ReadinessRecoveryInterval;
     }
@@ -562,7 +597,7 @@ public sealed partial class PreviewPage : UserControl
                 if (!string.Equals(error, _reportedReadinessError, StringComparison.Ordinal))
                 {
                     _reportedReadinessError = error;
-                    ShowDiagnostic($"预览应用启动失败：{error}");
+                    ShowDiagnostic(LocalizationService.T("Preview.AppFailed", error));
                 }
                 return;
             }
@@ -643,15 +678,15 @@ public sealed partial class PreviewPage : UserControl
 
     private async void OnPickAudio(object sender, RoutedEventArgs e) =>
         await ApplyPickedAssetAsync(() => _state?.AudioPath, value => _state!.AudioPath = value,
-            "选择音频文件", AudioExtensions, PickerLocationId.MusicLibrary);
+            LocalizationService.T("Preview.PickAudio"), AudioExtensions, PickerLocationId.MusicLibrary);
 
     private async void OnPickLyric(object sender, RoutedEventArgs e) =>
         await ApplyPickedAssetAsync(() => _state?.LyricPath, value => _state!.LyricPath = value,
-            "选择歌词文件", LyricExtensions, PickerLocationId.DocumentsLibrary);
+            LocalizationService.T("Preview.PickLyric"), LyricExtensions, PickerLocationId.DocumentsLibrary);
 
     private async void OnPickCover(object sender, RoutedEventArgs e) =>
         await ApplyPickedAssetAsync(() => _state?.CoverPath, value => _state!.CoverPath = value,
-            "选择专辑封面", CoverExtensions, PickerLocationId.PicturesLibrary);
+            LocalizationService.T("Preview.PickCover"), CoverExtensions, PickerLocationId.PicturesLibrary);
 
     private async Task<string?> PickFileAsync(
         string title, IReadOnlyCollection<string> extensions, PickerLocationId location)

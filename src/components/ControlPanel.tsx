@@ -286,7 +286,7 @@ export default function ControlPanel({
                 <input
                   type="range"
                   min={30}
-                  max={80}
+                  max={100}
                   step={1}
                   value={options.lyricWidth}
                   onChange={(e) => onChange({ lyricWidth: clampLyricWidth(Number(e.target.value)) })}

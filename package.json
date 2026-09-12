@@ -1,7 +1,7 @@
 {
   "name": "amll-lyric-mv-studio",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "AMLL Lyric MV Studio — Apple Music 风格逐字歌词 MV 制作与导出工具",
   "author": "Cplay00",

@@ -1,6 +1,6 @@
 #define MyAppName "AMLL Lyric MV Studio"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0"
+  #define MyAppVersion "0.2.1"
 #endif
 #ifndef MyAppFlavor
   #define MyAppFlavor "Full"
@@ -37,8 +37,13 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 WizardResizable=yes
-LanguageDetectionMethod=none
-ShowLanguageDialog=no
+; 语言机制（Inno 6.7.3 实测）：uilanguage + auto 是唯一同时满足以下三点的组合——
+; ① 无 /LANG 时按系统 UI 语言选默认（中文系统 → zhcn，无原生对话框）；
+; ② ShowLanguageDialog=no 会静默忽略 /LANG，导致欢迎页语言切换的重启流程失效；
+; ③ LanguageDetectionMethod=none 时 auto 判定"UI 语言无匹配"而每次都弹原生对话框，
+;    且对话框预选与 /LANG 无关（会覆盖重启流程选定的语言）。
+LanguageDetectionMethod=uilanguage
+ShowLanguageDialog=auto
 ChangesEnvironment=no
 CloseApplications=yes
 RestartApplications=no
@@ -55,7 +60,7 @@ VersionInfoDescription={#MyAppName} per-user installer
 VersionInfoCompany={#MyAppPublisher}
 
 [Languages]
-; Simplified Chinese is intentionally first so /LANG is absent defaults to zhcn.
+; zhcn 置首仅作兜底：LanguageDetectionMethod=uilanguage 下无匹配 UI 语言时才落到首项。
 Name: "zhcn"; MessagesFile: "languages\ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
@@ -102,6 +107,9 @@ zhcn.WebView2RestartRequired=Microsoft Edge WebView2 Runtime 安装需要重启 
 zhcn.WelcomeTitle=欢迎使用 AMLL Lyric MV Studio
 zhcn.WelcomeText=将音频、逐字歌词与专辑封面制作成 Apple Music 风格歌词 MV。%n%n安装程序将安装 {#MyAppFlavor} 版 {#MyAppVersion}，之后可从“开始”菜单启动。
 zhcn.LanguageLabel=安装语言：
+zhcn.LanguageSelectRequired=请先选择安装语言。
+zhcn.LanguageSwitchGuard=已尝试过语言切换，将继续使用当前语言。
+zhcn.LanguageSwitchFailed=无法以所选语言重启安装程序。
 english.CreateStartMenuShortcut=Create a Start Menu shortcut
 english.InstallingWebView2=Installing Microsoft Edge WebView2 Runtime...
 english.WebView2LaunchFailed=Unable to start the Microsoft Edge WebView2 Runtime installer: %1
@@ -110,6 +118,9 @@ english.WebView2RestartRequired=Microsoft Edge WebView2 Runtime installation req
 english.WelcomeTitle=Welcome to AMLL Lyric MV Studio
 english.WelcomeText=Create Apple Music-style lyric videos from audio, timed lyrics, and album artwork.%n%nSetup will install the {#MyAppFlavor} edition, version {#MyAppVersion}.
 english.LanguageLabel=Installer language:
+english.LanguageSelectRequired=Select an installer language before continuing.
+english.LanguageSwitchGuard=Language switching was already attempted. Continue with the current language.
+english.LanguageSwitchFailed=Unable to restart Setup in the selected language.
 japanese.CreateStartMenuShortcut=スタート メニューのショートカットを作成する
 japanese.InstallingWebView2=Microsoft Edge WebView2 Runtime をインストールしています...
 japanese.WebView2LaunchFailed=Microsoft Edge WebView2 Runtime インストーラーを起動できませんでした: %1
@@ -118,6 +129,9 @@ japanese.WebView2RestartRequired=Microsoft Edge WebView2 Runtime のインスト
 japanese.WelcomeTitle=AMLL Lyric MV Studio へようこそ
 japanese.WelcomeText=オーディオ、タイミング付き歌詞、アルバムアートから Apple Music スタイルの歌詞動画を作成します。%n%nセットアップは {#MyAppFlavor} エディション、バージョン {#MyAppVersion} をインストールします。
 japanese.LanguageLabel=インストーラーの言語:
+japanese.LanguageSelectRequired=続行する前にインストーラーの言語を選択してください。
+japanese.LanguageSwitchGuard=言語の切り替えは既に試行されました。現在の言語で続行します。
+japanese.LanguageSwitchFailed=選択した言語でセットアップを再起動できませんでした。
 korean.CreateStartMenuShortcut=시작 메뉴 바로 가기 만들기
 korean.InstallingWebView2=Microsoft Edge WebView2 Runtime 설치 중...
 korean.WebView2LaunchFailed=Microsoft Edge WebView2 Runtime 설치 프로그램을 시작할 수 없습니다: %1
@@ -126,6 +140,9 @@ korean.WebView2RestartRequired=Microsoft Edge WebView2 Runtime 설치를 완료�
 korean.WelcomeTitle=AMLL Lyric MV Studio에 오신 것을 환영합니다
 korean.WelcomeText=오디오, 타이밍이 지정된 가사 및 앨범 아트로 Apple Music 스타일의 가사 비디오를 만듭니다.%n%n설치 프로그램이 {#MyAppFlavor} 에디션 버전 {#MyAppVersion}을(를) 설치합니다.
 korean.LanguageLabel=설치 언어:
+korean.LanguageSelectRequired=계속하기 전에 설치 언어를 선택하십시오.
+korean.LanguageSwitchGuard=언어 전환이 이미 시도되었습니다. 현재 언어로 계속합니다.
+korean.LanguageSwitchFailed=선택한 언어로 설치 프로그램을 다시 시작할 수 없습니다.
 french.CreateStartMenuShortcut=Créer un raccourci dans le menu Démarrer
 french.InstallingWebView2=Installation du runtime Microsoft Edge WebView2...
 french.WebView2LaunchFailed=Impossible de démarrer le programme d'installation du runtime Microsoft Edge WebView2 : %1
@@ -134,6 +151,9 @@ french.WebView2RestartRequired=L'installation du runtime Microsoft Edge WebView2
 french.WelcomeTitle=Bienvenue dans AMLL Lyric MV Studio
 french.WelcomeText=Créez des vidéos de paroles de style Apple Music à partir d'audio, de paroles synchronisées et d'illustrations d'album.%n%nLe programme d'installation installera l'édition {#MyAppFlavor}, version {#MyAppVersion}.
 french.LanguageLabel=Langue d'installation :
+french.LanguageSelectRequired=Sélectionnez une langue d'installation avant de continuer.
+french.LanguageSwitchGuard=Le changement de langue a déjà été tenté. Poursuivez avec la langue actuelle.
+french.LanguageSwitchFailed=Impossible de redémarrer l'installation dans la langue sélectionnée.
 german.CreateStartMenuShortcut=Startmenü-Verknüpfung erstellen
 german.InstallingWebView2=Microsoft Edge WebView2 Runtime wird installiert...
 german.WebView2LaunchFailed=Das Installationsprogramm für Microsoft Edge WebView2 Runtime konnte nicht gestartet werden: %1
@@ -142,6 +162,9 @@ german.WebView2RestartRequired=Die Installation von Microsoft Edge WebView2 Runt
 german.WelcomeTitle=Willkommen bei AMLL Lyric MV Studio
 german.WelcomeText=Erstellen Sie Liedtextvideos im Apple-Music-Stil aus Audio, zeitgesteuerten Liedtexten und Albumcovern.%n%nSetup installiert die {#MyAppFlavor}-Edition, Version {#MyAppVersion}.
 german.LanguageLabel=Installationssprache:
+german.LanguageSelectRequired=Wählen Sie vor dem Fortfahren eine Installationssprache.
+german.LanguageSwitchGuard=Der Sprachwechsel wurde bereits versucht. Es wird mit der aktuellen Sprache fortgefahren.
+german.LanguageSwitchFailed=Das Setup konnte in der ausgewählten Sprache nicht neu gestartet werden.
 spanish.CreateStartMenuShortcut=Crear un acceso directo en el menú Inicio
 spanish.InstallingWebView2=Instalando Microsoft Edge WebView2 Runtime...
 spanish.WebView2LaunchFailed=No se pudo iniciar el instalador de Microsoft Edge WebView2 Runtime: %1
@@ -150,6 +173,9 @@ spanish.WebView2RestartRequired=La instalación de Microsoft Edge WebView2 Runti
 spanish.WelcomeTitle=Bienvenido a AMLL Lyric MV Studio
 spanish.WelcomeText=Cree vídeos de letras al estilo de Apple Music a partir de audio, letras sincronizadas y carátulas de álbumes.%n%nEl programa de instalación instalará la edición {#MyAppFlavor}, versión {#MyAppVersion}.
 spanish.LanguageLabel=Idioma de instalación:
+spanish.LanguageSelectRequired=Seleccione un idioma de instalación antes de continuar.
+spanish.LanguageSwitchGuard=El cambio de idioma ya se intentó. Continúe con el idioma actual.
+spanish.LanguageSwitchFailed=No se pudo reiniciar la instalación en el idioma seleccionado.
 russian.CreateStartMenuShortcut=Создать ярлык в меню «Пуск»
 russian.InstallingWebView2=Установка Microsoft Edge WebView2 Runtime...
 russian.WebView2LaunchFailed=Не удалось запустить установщик Microsoft Edge WebView2 Runtime: %1
@@ -158,6 +184,9 @@ russian.WebView2RestartRequired=Для установки Microsoft Edge WebView
 russian.WelcomeTitle=Добро пожаловать в AMLL Lyric MV Studio
 russian.WelcomeText=Создавайте видео с текстами песен в стиле Apple Music из аудио, синхронизированных текстов и обложек альбомов.%n%nПрограмма установки установит выпуск {#MyAppFlavor}, версия {#MyAppVersion}.
 russian.LanguageLabel=Язык установки:
+russian.LanguageSelectRequired=Выберите язык установки перед продолжением.
+russian.LanguageSwitchGuard=Смена языка уже выполнялась. Продолжение на текущем языке.
+russian.LanguageSwitchFailed=Не удалось перезапустить программу установки на выбранном языке.
 
 [Code]
 const
@@ -185,19 +214,25 @@ begin
 
   LanguageLabel := TNewStaticText.Create(WizardForm);
   LanguageLabel.Parent := WizardForm.WelcomePage;
-  LanguageLabel.Left := ScaleX(8);
-  LanguageLabel.Top := WizardForm.WelcomePage.ClientHeight - ScaleY(28);
   LanguageLabel.AutoSize := True;
   LanguageLabel.Anchors := [akLeft, akBottom];
+  LanguageLabel.Left := WizardForm.WelcomeLabel2.Left;
+  LanguageLabel.Top := WizardForm.WelcomePage.ClientHeight - ScaleY(30);
   LanguageLabel.Caption := CustomMessage('LanguageLabel');
 
+  // 语言选择器位于内容区底部、与“下一步/取消”同一水平行的左侧：
+  // 不再压在左侧插图栏上（旧实现 Left=ScaleX(8) 恰好叠在欢迎图内），并修正标签与下拉的基线对齐。
   LanguageCombo := TNewComboBox.Create(WizardForm);
   LanguageCombo.Parent := WizardForm.WelcomePage;
   LanguageCombo.Style := csDropDownList;
   LanguageCombo.Left := LanguageLabel.Left + LanguageLabel.Width + ScaleX(8);
-  LanguageCombo.Top := WizardForm.WelcomePage.ClientHeight - ScaleY(32);
-  LanguageCombo.Width := ScaleX(140);
+  LanguageCombo.Top := WizardForm.WelcomePage.ClientHeight - ScaleY(34);
+  LanguageCombo.Width := ScaleX(160);
   LanguageCombo.Anchors := [akLeft, akBottom];
+
+  if LanguageCombo.Height > LanguageLabel.Height then
+    LanguageLabel.Top := LanguageCombo.Top + ((LanguageCombo.Height - LanguageLabel.Height) div 2);
+
   AddLanguage('简体中文', 'zhcn');
   AddLanguage('English', 'english');
   AddLanguage('日本語', 'japanese');
@@ -285,6 +320,36 @@ begin
   Result := Result + '/LANG=' + SelectedLanguage + ' ' + LanguageRestartGuard;
 end;
 
+function GetCurrentProcessId: Cardinal;
+external 'GetCurrentProcessId@kernel32.dll stdcall';
+
+function PSQuote(const S: String): String;
+begin
+  { srcexe 与重启参数不含单引号，直接包裹即可 }
+  Result := '''' + S + '''';
+end;
+
+function HasLanguageRestartGuard: Boolean;
+var
+  Index: Integer;
+  Parameter: String;
+  Eq: Integer;
+begin
+  { 兼容 /NAME=1、-NAME=1 与裸 NAME=1：经 PowerShell Start-Process 转发时
+    第二个参数的前导斜杠会被剥掉（PowerShell 5.1 实测），内置 param 常量不识别裸形式。 }
+  Result := False;
+  for Index := 1 to ParamCount do begin
+    Parameter := ParamStr(Index);
+    if StartsWithText(LanguageRestartGuardName + '=', Parameter) or
+       StartsWithText('/' + LanguageRestartGuardName + '=', Parameter) or
+       StartsWithText('-' + LanguageRestartGuardName + '=', Parameter) then begin
+      Eq := Pos('=', Parameter);
+      Result := Copy(Parameter, Eq + 1, 1) = '1';
+      if Result then Exit;
+    end;
+  end;
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   SelectedLanguage: String;
@@ -294,15 +359,15 @@ begin
   Result := True;
   if CurPageID <> wpWelcome then Exit;
   if LanguageCombo.ItemIndex < 0 then begin
-    MsgBox('Select an installer language before continuing.', mbError, MB_OK);
+    MsgBox(CustomMessage('LanguageSelectRequired'), mbError, MB_OK);
     Result := False;
     Exit;
   end;
   SelectedLanguage := LanguageIds[LanguageCombo.ItemIndex];
   if CompareText(SelectedLanguage, ActiveLanguage) = 0 then Exit;
 
-  if ExpandConstant('{param:' + LanguageRestartGuardName + '|0}') = '1' then begin
-    MsgBox('Language switching was already attempted. Continue with the current language.', mbInformation, MB_OK);
+  if HasLanguageRestartGuard then begin
+    MsgBox(CustomMessage('LanguageSwitchGuard'), mbInformation, MB_OK);
     Exit;
   end;
 
@@ -311,8 +376,19 @@ begin
     LanguageRestarting := True;
     WizardForm.Close;
     Result := False;
+  end else if ShellExec('', 'powershell.exe',
+      '-NoProfile -WindowStyle Hidden -Command "Wait-Process -Id ' +
+      IntToStr(GetCurrentProcessId()) + ' -ErrorAction SilentlyContinue; ' +
+      'Start-Process -FilePath ' + PSQuote(ExpandConstant('{srcexe}')) +
+      ' -ArgumentList ' + PSQuote(Parameters) + '"',
+      '', SW_HIDE, ewNoWait, ResultCode) then begin
+    { 后备路径：部分环境下（loader/engine 持有 srcexe 句柄）直接自启会
+      返回 SE_ERR_ACCESSDENIED，改为等本实例退出后再由 PowerShell 拉起。 }
+    LanguageRestarting := True;
+    WizardForm.Close;
+    Result := False;
   end else
-    MsgBox('Unable to restart Setup in the selected language.', mbError, MB_OK);
+    MsgBox(CustomMessage('LanguageSwitchFailed'), mbError, MB_OK);
 end;
 
 procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);

@@ -62,6 +62,16 @@ public sealed partial class MainWindow : Window
 
         PreviewView.Initialize(_state, _server);
         ExportView.Initialize(_state);
+        AboutView.Initialize();
+        ApplyLocalization();
+        LocalizationService.LanguageChanged += (_, _) =>
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                ApplyLocalization();
+                PreviewView.ApplyLocalization();
+                ExportView.ApplyLocalization();
+                AboutView.ApplyLocalization();
+            });
 
         Closed += (_, _) =>
         {
@@ -69,6 +79,19 @@ public sealed partial class MainWindow : Window
             ExportView.Shutdown();
             _server.Dispose();
         };
+    }
+
+    private void ApplyLocalization()
+    {
+        string preview = LocalizationService.T("Nav.Preview");
+        string export = LocalizationService.T("Nav.Export");
+        string about = LocalizationService.T("Nav.About");
+        NavPreview.Content = preview;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavPreview, preview);
+        NavExport.Content = export;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavExport, export);
+        NavAbout.Content = about;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NavAbout, about);
     }
 
     /// <summary>
@@ -103,7 +126,7 @@ public sealed partial class MainWindow : Window
                     i++;
                     break;
                 case "--fps" when value is not null:
-                    if (int.TryParse(value, out int fps)) _state.Fps = Math.Clamp(fps, 24, 60);
+                    if (int.TryParse(value, out int fps)) _state.Fps = Math.Clamp(fps, 24, 120);
                     i++;
                     break;
             }
@@ -123,5 +146,19 @@ public sealed partial class MainWindow : Window
         PreviewView.Visibility = preview ? Visibility.Visible : Visibility.Collapsed;
         ExportView.Visibility = tag == "export" ? Visibility.Visible : Visibility.Collapsed;
         AboutView.Visibility = tag == "about" ? Visibility.Visible : Visibility.Collapsed;
+
+        // 从预览页切走时，Win32 焦点常停留在 WebView2 的 Chromium 子 HWND 上；
+        // 不把焦点交还 XAML 树，目标页的第一个可交互控件（如字体下拉）会吃掉
+        // 一次点击用于收回焦点，表现为"需要二次点击"。
+        if (tag == "export")
+        {
+            ExportView.IsTabStop = true;
+            ExportView.Focus(FocusState.Programmatic);
+        }
+        else if (tag == "about")
+        {
+            AboutView.IsTabStop = true;
+            AboutView.Focus(FocusState.Programmatic);
+        }
     }
 }

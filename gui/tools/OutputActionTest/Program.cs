@@ -355,7 +355,9 @@ internal static class Program
         string destinationAutomationId,
         bool requireDestinationVisible)
     {
-        AutomationElement nav = RequireByName(window, name);
+        // 优先用稳定的 AutomationId（导航项名称会随界面语言变化），找不到再回退名称匹配。
+        AutomationElement? navById = FindByAutomationId(window, "NavExport");
+        AutomationElement nav = navById ?? RequireByName(window, name);
         if (!nav.TryGetCurrentPattern(SelectionItemPattern.Pattern, out object? pattern) ||
             pattern is not SelectionItemPattern selection)
             throw new InvalidOperationException($"导航项不支持 SelectionItemPattern：{name}");

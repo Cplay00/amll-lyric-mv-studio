@@ -57,7 +57,8 @@ public static class PreviewScripts
         if (!string.IsNullOrWhiteSpace(state.CoverPath))
             Add("cover", server.Mount("/__mv/cover" + Path.GetExtension(state.CoverPath), state.CoverPath));
 
-        StagePreset preset = StagePresets.Resolve(state.Preset);
+        StagePreset preset = StagePresets.Resolve(
+            state.Preset, state.CustomStageWidth, state.CustomStageHeight);
         Add("title", state.Title); Add("artist", state.Artist); Add("album", state.Album);
         Add("fontFamily", state.FontFamily); Add("fontScale", F(state.FontScale));
         Add("fontWeight", state.FontWeight.ToString(CultureInfo.InvariantCulture));
@@ -66,6 +67,8 @@ public static class PreviewScripts
         Add("showArtwork", B(state.ShowArtwork)); Add("showControls", B(state.ShowControls));
         Add("artworkScale", F(state.ArtworkScale)); Add("lyricAlign", state.LyricAlign);
         Add("lyricOffset", F(state.LyricOffset)); Add("lyricWidth", F(state.LyricWidth));
+        Add("lyricHeight", F(state.LyricHeight));
+        Add("infoOffsetX", F(state.InfoOffsetX)); Add("infoOffsetY", F(state.InfoOffsetY));
         Add("lyricFade", F(state.LyricFade));
         Add("backgroundDim", F(state.BackgroundDim));
         Add("backgroundSaturation", F(state.BackgroundSaturation));
@@ -83,9 +86,13 @@ public static class PreviewScripts
 
     public static string ApplyOptions(AppState state)
     {
+        StagePreset preset = StagePresets.Resolve(
+            state.Preset, state.CustomStageWidth, state.CustomStageHeight);
         var patch = new
         {
             presetId = state.Preset,
+            stageWidth = preset.Width,
+            stageHeight = preset.Height,
             fps = state.Fps,
             flowSpeed = state.FlowSpeed,
             renderScale = state.RenderScale,
@@ -105,6 +112,9 @@ public static class PreviewScripts
             lyricAlign = state.LyricAlign,
             lyricOffset = state.LyricOffset,
             lyricWidth = state.LyricWidth,
+            lyricHeight = state.LyricHeight,
+            infoOffsetX = state.InfoOffsetX,
+            infoOffsetY = state.InfoOffsetY,
             lyricFade = state.LyricFade,
             backgroundDim = state.BackgroundDim,
             backgroundSaturation = state.BackgroundSaturation,

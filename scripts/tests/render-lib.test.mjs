@@ -17,6 +17,7 @@ import {
   discoverDevelopmentFfmpeg,
   formatConcatTimeline,
   getEncoderQualityArgs,
+  getEncoderRateControlCandidates,
   getFfmpegCfrArgs,
   holdFirstFrameUntil,
   normalizeCanonicalOptions,
@@ -169,15 +170,44 @@ const probeSuccess = await probeEncoder("fake-ffmpeg", "h264_nvenc", detectedNve
 assert.equal(probeSuccess.available, true);
 assert.equal(probeSuccess.defaultPreset, "p4");
 
+// AMF 多候选码控探测：cqp 失败后依次回退 qvbr / vbr_peak，并记录命中模式。
+const amfCandidates = getEncoderRateControlCandidates("h264_amf");
+assert.deepEqual(amfCandidates, ["cqp", "qvbr", "vbr_peak"]);
+assert.deepEqual(getEncoderRateControlCandidates("libx264"), [null]);
+const triedRcModes = [];
+const probeAmfFallback = await probeEncoder("fake-ffmpeg", "h264_amf", new Set(ENCODER_PRESETS.h264_amf), async (_command, args) => {
+  const rcIndex = args.indexOf("-rc");
+  const mode = rcIndex >= 0 ? args[rcIndex + 1] : null;
+  triedRcModes.push(mode);
+  if (mode === "cqp") throw new Error("driver rejected cqp");
+  return { stdout: "", stderr: "" };
+});
+assert.equal(probeAmfFallback.available, true);
+assert.equal(probeAmfFallback.rateControl, "qvbr");
+assert.deepEqual(triedRcModes, ["cqp", "qvbr"]);
+assert.equal(
+  getEncoderQualityArgs("h264_amf", 20, "balanced", null, "qvbr").join(" "),
+  "-quality balanced -rc qvbr -qvbr_quality_level 20",
+);
+assert.equal(
+  getEncoderQualityArgs("h264_amf", 20, "balanced", null, "vbr_peak").join(" "),
+  "-quality balanced -rc vbr_peak -b:v 8000k",
+);
+const probeAmfAllFail = await probeEncoder("fake-ffmpeg", "h264_amf", new Set(ENCODER_PRESETS.h264_amf), async () => {
+  throw new Error("driver rejected");
+});
+assert.equal(probeAmfAllFail.available, false);
+assert.match(probeAmfAllFail.failureReason, /driver rejected/);
+
 assert.deepEqual(normalizeCanonicalOptions(), CANONICAL_RENDER_OPTIONS);
 for (const secondaryMode of ["none", "translation", "roman", "both"]) {
   assert.equal(normalizeCanonicalOptions({ secondaryMode }).secondaryMode, secondaryMode);
 }
-for (const lyricWidth of [30, 54, 80]) assert.equal(normalizeCanonicalOptions({ lyricWidth }).lyricWidth, lyricWidth);
+for (const lyricWidth of [30, 54, 80, 100]) assert.equal(normalizeCanonicalOptions({ lyricWidth }).lyricWidth, lyricWidth);
 for (const lyricOffset of [-600, 0, 600]) assert.equal(normalizeCanonicalOptions({ lyricOffset }).lyricOffset, lyricOffset);
 for (const backgroundSaturation of [0, 1.2, 2]) assert.equal(normalizeCanonicalOptions({ backgroundSaturation }).backgroundSaturation, backgroundSaturation);
 for (const browserGpu of ["auto", "on", "off"]) assert.equal(normalizeCanonicalOptions({ browserGpu }).browserGpu, browserGpu);
-assert.throws(() => normalizeCanonicalOptions({ lyricWidth: 29 }), /30\.\.80/);
+assert.throws(() => normalizeCanonicalOptions({ lyricWidth: 101 }), /30\.\.100/);
 assert.throws(() => normalizeCanonicalOptions({ lyricOffset: 601 }), /-600\.\.600/);
 assert.throws(() => normalizeCanonicalOptions({ backgroundSaturation: 2.1 }), /0\.\.2/);
 assert.throws(() => normalizeCanonicalOptions({ secondaryMode: "trans" }), /none.*both/);

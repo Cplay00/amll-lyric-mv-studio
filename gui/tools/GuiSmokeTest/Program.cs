@@ -85,12 +85,12 @@ internal static class Program
             Require(window.Current.Name == "AMLL Lyric MV Studio", "窗口标题不符合统一产品名。");
             Console.WriteLine($"窗口 DPI: {GetDpiForWindow(hwnd)} ({GetDpiForWindow(hwnd) / 96.0:P0})");
 
-            SelectNavigation(window, "About", "AboutVersion", requireDestinationVisible: true);
+            SelectNavigationByAutomationId(window, "NavAbout", "AboutVersion", requireDestinationVisible: true);
             AutomationElement aboutVersion = RequireElementByAutomationId(window, "AboutVersion");
             Require(IsVisible(aboutVersion), "关于页版本控件不可见。");
             RequireElementByName(window, "AMLL Lyric MV Studio");
 
-            SelectNavigation(window, "导出成片", "StartRender", requireDestinationVisible: false);
+            SelectNavigationByAutomationId(window, "NavExport", "StartRender", requireDestinationVisible: false);
             CaptureIfRequested(hwnd, options, "gui-export-page.png", "导出页");
 
             RequirePatternByAutomationId(window, "PickAudioButton", InvokePattern.Pattern);
@@ -311,6 +311,26 @@ internal static class Program
             return destination is not null && (!requireDestinationVisible || IsVisible(destination));
         }, WindowTimeout, $"导航到“{name}”超时。");
         Require(selection.Current.IsSelected, $"导航项选择状态无效：{name}");
+    }
+
+    /// <summary>按 AutomationId 选择导航项：导航项名称会随界面语言变化，AutomationId 才是稳定契约。</summary>
+    private static void SelectNavigationByAutomationId(
+        AutomationElement window,
+        string automationId,
+        string destinationAutomationId,
+        bool requireDestinationVisible)
+    {
+        AutomationElement navItem = RequireElementByAutomationId(window, automationId);
+        if (!navItem.TryGetCurrentPattern(SelectionItemPattern.Pattern, out object? pattern) ||
+            pattern is not SelectionItemPattern selection)
+            throw new InvalidOperationException($"导航项不支持 SelectionItemPattern：{automationId}");
+        selection.Select();
+        WaitUntil(() =>
+        {
+            AutomationElement? destination = FindByAutomationId(window, destinationAutomationId);
+            return destination is not null && (!requireDestinationVisible || IsVisible(destination));
+        }, WindowTimeout, $"导航到导航项 {automationId} 超时。");
+        Require(selection.Current.IsSelected, $"导航项选择状态无效：{automationId}");
     }
 
     private static void SetRequiredText(AutomationElement window, string locator, string value, bool automationId = false)

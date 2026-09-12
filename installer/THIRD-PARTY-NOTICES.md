@@ -19,7 +19,7 @@ a substitute for that source-code offer.
 |---|---:|---|---|
 | AMLL Lyric MV Studio, `scripts/render-mv.mjs`, `scripts/render-lib.mjs`, and `@applemusic-like-lyrics/{core,react,lyric}` | app 0.2.0; renderer scripts from this source release; packages 0.5.2/0.5.2/1.0.2 | AGPL-3.0-only | Project source and npm lockfile; AMLL npm packages come from [amll-dev/applemusic-like-lyrics](https://github.com/amll-dev/applemusic-like-lyrics); exact installed script hashes are recorded in `package-manifest.json` |
 | Node.js x64 | 24.16.0 LTS (Krypton) | MIT plus licenses in Node's bundled `LICENSE` | `https://nodejs.org/dist/v24.16.0/node-v24.16.0-win-x64.zip`; SHA256 `EDACA9BD58EC8E92037DAC4E877D52F6B8F430B81C18B57E264B4E2FB111CD56` from Node's official `SHASUMS256.txt` |
-| FFmpeg Windows x64 (self-built minimal build) | 8.1.2 | Conveyed under GPL version 3: FFmpeg GPL components plus libx264 (GPL-2.0-or-later); nv-codec-headers (MIT) | Built locally by this project via `amll-ffmpeg-build-source/build.sh` from hash-verified upstream sources; binary zip `ffmpeg-8.1.2-amll-minimal-gpl.zip`, SHA-256 `03DC06C3C02CE318EDAE209D4FD8EE7603AFB554BFE89B60245540A868704C88`; the complete Corresponding Source bundle ships with the release |
+| FFmpeg Windows x64 (Gyan "essentials" prebuilt build) | 8.1.2 | Conveyed under GPL version 3: FFmpeg GPL components plus libx264/libx265 (GPL-2.0-or-later), GPL-licensed external libraries, and MIT/BSD-style helper libraries recorded in the source-offer bundle | Prebuilt binary from Gyan D. (Felix Hänicke)'s codexffmpeg release: `https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip`, SHA-256 `DB580001CAA24AC104C8CB856CD113A87B0A443F7BDF47D8C12B1D740584A2EC`; the release ships `ffmpeg-8.1.2-source-offer/`, an offer bundle pinning this exact archive plus the authenticated upstream FFmpeg source and every resolvable upstream library source (url + SHA-256) required by GPL section 6 |
 | Playwright Core | 1.63.0 | Apache-2.0; its NOTICE credits Puppeteer | npm registry via `npm ci`; exact version and integrity recorded in `package-lock.json` |
 | React, ReactDOM, scheduler | 18.3.1 / 18.3.1 / 0.23.2 | MIT | npm registry tarballs recorded below and in `package-lock.json` |
 | PixiJS production packages | `@pixi/{app,color,constants,core,display,extensions,filter-blur,filter-color-matrix,math,runner,settings,sprite,ticker,utils}` 7.4.3; `@pixi/filter-bulge-pinch` 5.1.1; `@pixi/colord` 2.9.6 | MIT | npm registry tarballs recorded below and in `package-lock.json` |
@@ -106,30 +106,40 @@ build-stopping error rather than a warning:
 - The vendored Chromium BSD-style license at
   `licenses/browser/Chromium-LICENSE.txt`; additional third-party notices supplied
   by the browser build remain with the browser payload when available.
-- The FFmpeg build's own `LICENSE-GPL-3.0.txt` and `BUILD-INFORMATION.txt`
-  (configure line, toolchain, and provenance) at `licenses/ffmpeg/`, taken
-  verbatim from the distributed binary archive.
+- The FFmpeg build's own `LICENSE` (GPL v3 text shipped by the Gyan build) at
+  `licenses/ffmpeg/`, taken verbatim from the distributed binary archive.
 
-FFmpeg is a separate executable program invoked by the rendering script. The installed build is a minimal, statically linked FFmpeg 8.1.2 compiled by
-this project. It identifies itself as GPLv3 and includes libx264. Its complete
-Corresponding Source is the `ffmpeg-8.1.2-corresponding-source/` bundle
-described above, which contains the official FFmpeg 8.1.2 archive
+FFmpeg is a separate executable program invoked by the rendering script. The
+installed build is Gyan's statically linked FFmpeg 8.1.2 "essentials" prebuilt
+binary, conveyed in full under GPL version 3. It provides the hardware encoders
+(`h264_nvenc`/`hevc_nvenc`, `h264_qsv`/`hevc_qsv`, `h264_amf`/`hevc_amf`) and the
+software encoders `libx264`/`libx265`. Because a static binary cannot be
+reproduced from this repository, the release ships
+`ffmpeg-8.1.2-source-offer/`: a machine-readable offer bundle that pins the
+exact distributed binary archive by SHA-256, ties it to the Gyan build
+description (`README.txt`) carried inside that archive, and records the
+authenticated upstream FFmpeg 8.1.2 archive
 (`https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz`, detached signature:
-`https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz.asc`), the exact x264 and
-nv-codec-headers sources, and the full build script. FFmpeg license
-information: `https://ffmpeg.org/legal.html`.
+`https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz.asc`) together with the
+resolved upstream source (url + SHA-256) of every third-party library the build
+enables, and documents the components whose exact source could not be resolved.
+FFmpeg license information: `https://ffmpeg.org/legal.html`. Written source
+offers under GPL section 6(b) remain valid for at least three years; anyone
+may request the corresponding source by the contact channels published with
+the project.
 
 The final release workflow authenticates the FFmpeg 8.1.2 upstream archive
 against its detached signature and the pinned FFmpeg release key (fingerprint
-`FCF986EA15E6E293A5644F10B4322F04D67658D8`). The distributed FFmpeg binary is
-not a third-party prebuilt: it is compiled locally from that verified archive
-plus x264 commit `0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee` (x264
-`v0.165.3223`) and nv-codec-headers commit `1b5a81a` using the reproducible
-`build.sh`. The complete Corresponding Source for this statically linked
-binary is therefore the bundle in `ffmpeg-8.1.2-corresponding-source/`
-(FFmpeg tarball, signature, release key, x264 and nv-codec-headers archives,
-`build.sh`, `BUILD-INFORMATION.txt`, and `sources.sha256`), which
-`finalize-release.ps1` verifies hash-by-hash and ships with every release.
+`FCF986EA15E6E293A5644F10B4322F04D67658D8`), verifies that the distributed
+binary archive matches the hash pinned in the offer bundle, that the Gyan
+`README.txt` inside the archive matches the pinned hash, and that every
+resolved library entry carries upstream url + SHA-256 provenance. The offer
+bundle ships with every release as `ffmpeg-8.1.2-source-offer/`, which
+`finalize-release.ps1` validates before publishing. The previously distributed
+self-built minimal build (v0.2.0, `ffmpeg-8.1.2-amll-minimal-gpl.zip`) remains
+documented in the v0.2.0 release materials and its corresponding-source bundle
+(`installer/cache/amll-ffmpeg-build-source/`) stays available in the repository
+history.
 
 Chromium licensing information is available at
 `https://www.chromium.org/chromium-os/licenses/` and in the browser payload's

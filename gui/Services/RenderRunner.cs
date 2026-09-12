@@ -40,11 +40,16 @@ public sealed class RenderRequest
     public string LyricAlign { get; init; } = "left";
     public double LyricOffset { get; init; }
     public double LyricWidth { get; init; } = RenderContracts.DefaultLyricWidth;
+    public double LyricHeight { get; init; } = RenderContracts.MaxLyricHeight;
+    public double InfoOffsetX { get; init; }
+    public double InfoOffsetY { get; init; }
     public double LyricFade { get; init; } = RenderContracts.DefaultLyricFade;
     public double BackgroundDim { get; init; } = 0.35;
     public double BackgroundSaturation { get; init; } = RenderContracts.DefaultBackgroundSaturation;
     public double BackgroundBlur { get; init; } = 24;
     public string Preset { get; init; } = "1080p";
+    public int? StageWidth { get; init; }
+    public int? StageHeight { get; init; }
     public int Fps { get; init; } = 60;
     public double FlowSpeed { get; init; } = 2;
     public double RenderScale { get; init; } = 1;
@@ -149,6 +154,9 @@ public sealed class RenderRunner : IDisposable
             "--lyric-align", request.LyricAlign,
             "--lyric-offset", F(request.LyricOffset),
             "--lyric-width", F(request.LyricWidth),
+            "--lyric-height", F(request.LyricHeight),
+            "--info-offset-x", F(request.InfoOffsetX),
+            "--info-offset-y", F(request.InfoOffsetY),
             "--lyric-fade", F(request.LyricFade),
             "--background-dim", F(request.BackgroundDim),
             "--background-saturation", F(request.BackgroundSaturation),
@@ -163,6 +171,11 @@ public sealed class RenderRunner : IDisposable
         if (string.IsNullOrWhiteSpace(request.OutputPath))
             throw new ArgumentException("GUI 渲染请求必须提供绝对输出路径。", nameof(request.OutputPath));
         Add("--out", request.OutputPath);
+        if (request.StageWidth is int stageWidth && request.StageHeight is int stageHeight)
+        {
+            Add("--width", stageWidth.ToString(CultureInfo.InvariantCulture));
+            Add("--height", stageHeight.ToString(CultureInfo.InvariantCulture));
+        }
         if (!string.IsNullOrWhiteSpace(request.Artist)) Add("--artist", request.Artist);
         if (!string.IsNullOrWhiteSpace(request.Album)) Add("--album", request.Album);
         if (request.Encoder != "auto") Add("--encoder-preset", request.EncoderPreset);
@@ -186,10 +199,24 @@ public sealed class RenderRunner : IDisposable
         RenderContracts.ValidateChoice(request.BrowserGpu, RenderContracts.BrowserGpuModes, nameof(request.BrowserGpu));
         RenderContracts.ValidateChoice(request.AudioCodec, RenderContracts.AudioCodecs, nameof(request.AudioCodec));
         RenderContracts.ValidateChoice(request.Encoder, RenderContracts.Encoders, nameof(request.Encoder));
-        RenderContracts.RequireRange(request.LyricWidth, 30, 80, nameof(request.LyricWidth));
+        RenderContracts.RequireRange(request.LyricWidth, RenderContracts.MinLyricWidth, RenderContracts.MaxLyricWidth, nameof(request.LyricWidth));
+        RenderContracts.RequireRange(request.LyricHeight, RenderContracts.MinLyricHeight, RenderContracts.MaxLyricHeight, nameof(request.LyricHeight));
+        RenderContracts.RequireRange(request.InfoOffsetX, RenderContracts.MinInfoOffset, RenderContracts.MaxInfoOffset, nameof(request.InfoOffsetX));
+        RenderContracts.RequireRange(request.InfoOffsetY, RenderContracts.MinInfoOffset, RenderContracts.MaxInfoOffset, nameof(request.InfoOffsetY));
         RenderContracts.RequireRange(request.LyricFade, 0, 0.3, nameof(request.LyricFade));
         RenderContracts.RequireRange(request.LyricOffset, -600, 600, nameof(request.LyricOffset));
         RenderContracts.RequireRange(request.BackgroundSaturation, 0, 2, nameof(request.BackgroundSaturation));
+        if (request.StageWidth is int stageWidth || request.StageHeight is int stageHeight)
+        {
+            if (request.StageWidth is not int width || request.StageHeight is not int height)
+                throw new ArgumentException("自定义舞台尺寸必须同时提供宽度与高度。", nameof(request));
+            if (width is < RenderContracts.MinStageSize or > RenderContracts.MaxStageSize ||
+                height is < RenderContracts.MinStageSize or > RenderContracts.MaxStageSize)
+                throw new ArgumentException(
+                    $"自定义舞台尺寸必须介于 {RenderContracts.MinStageSize} 和 {RenderContracts.MaxStageSize} 像素之间。", nameof(request));
+            if (width % 2 != 0 || height % 2 != 0)
+                throw new ArgumentException("自定义舞台尺寸必须是偶数像素（yuv420p 要求）。", nameof(request));
+        }
         string? audioOutputError = RenderContracts.GetAudioOutputError(request.OutputPath, request.AudioCodec, request.Head, request.Tail);
         if (audioOutputError is not null) throw new ArgumentException(audioOutputError, nameof(request.AudioCodec));
         if (!Path.IsPathFullyQualified(request.OutputPath ?? ""))
@@ -213,9 +240,9 @@ public sealed class RenderRunner : IDisposable
         if (ffmpegPath is not null) args.AddRange(["--ffmpeg", ffmpegPath]);
         var psi = CreateProcessStartInfo(nodeExe, args);
         using var process = new Process { StartInfo = psi };
-        // 总超时兜底：损坏 GPU 驱动下硬件试编码可能逼近 2 分钟，UI 不应无限等待
+        // 总超时兜底：损坏 GPU 驱动下硬件试编码可能逼近 2 分钟，多候选试编码时间更长
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(90));
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(180));
         Task<string>? stdout = null;
         Task<string>? stderr = null;
         try
@@ -232,7 +259,7 @@ public sealed class RenderRunner : IDisposable
                 TryKill(process);
                 await WaitForProbeCleanupAsync(process, stdout, stderr);
                 if (cancellationToken.IsCancellationRequested) throw;
-                return MarkUnavailable("FFmpeg 编码器探测在 90 秒后超时。");
+                return MarkUnavailable("FFmpeg 编码器探测在 180 秒后超时。");
             }
             string text = (await stdout) + Environment.NewLine + (await stderr);
             var detected = ParseEncoderCapabilities(text);
@@ -270,6 +297,12 @@ public sealed class RenderRunner : IDisposable
         static EncoderOption CreateOption(string id, string label, EncoderProbeResult item)
         {
             IReadOnlyList<string> presets = RenderContracts.GetSupportedEncoderPresets(id, item.SupportedPresets);
+            if (item.Available && id != "auto" && presets.Count == 0)
+            {
+                // 非常规 ffmpeg 构建的帮助文本可能不含任何已知 preset 词；
+                // 真实试编码已成功时回退到规范 preset 表，避免把可用硬件编码器误标为不可用。
+                presets = RenderContracts.GetEncoderPresets(id);
+            }
             bool available = item.Available && (id == "auto" || presets.Count > 0);
             return new EncoderOption(id, label, available)
             {

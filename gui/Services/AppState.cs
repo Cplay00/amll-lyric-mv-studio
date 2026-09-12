@@ -25,6 +25,11 @@ public sealed class AppState : INotifyPropertyChanged
     private string _lyricAlign = "left";
     private double _lyricOffset;
     private double _lyricWidth = RenderContracts.DefaultLyricWidth;
+    private double _lyricHeight = RenderContracts.MaxLyricHeight;
+    private double _infoOffsetX;
+    private double _infoOffsetY;
+    private int _customStageWidth = 1920;
+    private int _customStageHeight = 1080;
     private double _lyricFade = RenderContracts.DefaultLyricFade;
     private double _backgroundDim = 0.35;
     private double _backgroundSaturation = RenderContracts.DefaultBackgroundSaturation;
@@ -65,7 +70,10 @@ public sealed class AppState : INotifyPropertyChanged
     public double ArtworkScale { get => _artworkScale; set => Set(ref _artworkScale, RenderContracts.ClampFinite(value, 0.5, 1.5, 1)); }
     public string LyricAlign { get => _lyricAlign; set => Set(ref _lyricAlign, value is "center" or "right" ? value : "left"); }
     public double LyricOffset { get => _lyricOffset; set => Set(ref _lyricOffset, RenderContracts.ClampFinite(value, -600, 600, 0)); }
-    public double LyricWidth { get => _lyricWidth; set => Set(ref _lyricWidth, RenderContracts.ClampFinite(value, 30, 80, RenderContracts.DefaultLyricWidth)); }
+    public double LyricWidth { get => _lyricWidth; set => Set(ref _lyricWidth, RenderContracts.ClampFinite(value, RenderContracts.MinLyricWidth, RenderContracts.MaxLyricWidth, RenderContracts.DefaultLyricWidth)); }
+    public double LyricHeight { get => _lyricHeight; set => Set(ref _lyricHeight, RenderContracts.ClampFinite(value, RenderContracts.MinLyricHeight, RenderContracts.MaxLyricHeight, RenderContracts.MaxLyricHeight)); }
+    public double InfoOffsetX { get => _infoOffsetX; set => Set(ref _infoOffsetX, RenderContracts.ClampFinite(value, RenderContracts.MinInfoOffset, RenderContracts.MaxInfoOffset, 0)); }
+    public double InfoOffsetY { get => _infoOffsetY; set => Set(ref _infoOffsetY, RenderContracts.ClampFinite(value, RenderContracts.MinInfoOffset, RenderContracts.MaxInfoOffset, 0)); }
     public double LyricFade { get => _lyricFade; set => Set(ref _lyricFade, RenderContracts.ClampFinite(value, 0, 0.3, RenderContracts.DefaultLyricFade)); }
     public double BackgroundDim { get => _backgroundDim; set => Set(ref _backgroundDim, RenderContracts.ClampFinite(value, 0, 0.9, 0.35)); }
     public double BackgroundSaturation { get => _backgroundSaturation; set => Set(ref _backgroundSaturation, RenderContracts.ClampFinite(value, 0, 2, RenderContracts.DefaultBackgroundSaturation)); }
@@ -73,7 +81,9 @@ public sealed class AppState : INotifyPropertyChanged
     public double FlowSpeed { get => _flowSpeed; set => Set(ref _flowSpeed, RenderContracts.ClampFinite(value, 0, 5, 2)); }
     public double RenderScale { get => _renderScale; set => Set(ref _renderScale, RenderContracts.ClampFinite(value, 0.25, 1, 1)); }
     public string Preset { get => _preset; set => Set(ref _preset, StagePresets.Resolve(value).Id); }
-    public int Fps { get => _fps; set => Set(ref _fps, Math.Clamp(value, 24, 60)); }
+    public int Fps { get => _fps; set => Set(ref _fps, Math.Clamp(value, 24, 120)); }
+    public int CustomStageWidth { get => _customStageWidth; set => Set(ref _customStageWidth, NormalizeStageSize(value, 1920)); }
+    public int CustomStageHeight { get => _customStageHeight; set => Set(ref _customStageHeight, NormalizeStageSize(value, 1080)); }
     public int Head { get => _head; set => Set(ref _head, Math.Clamp(value, 0, RenderContracts.MaxTimingPaddingMs)); }
     public int Tail { get => _tail; set { if (Set(ref _tail, Math.Clamp(value, 0, RenderContracts.MaxTimingPaddingMs))) OnPropertyChanged(nameof(TailMs)); } }
     public string Encoder { get => _encoder; set => Set(ref _encoder, RenderContracts.NormalizeEncoder(value)); }
@@ -100,6 +110,13 @@ public sealed class AppState : INotifyPropertyChanged
         if (name is null) return;
         OnPropertyChanged(name);
         AssetsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static int NormalizeStageSize(int value, int fallback)
+    {
+        if (value < RenderContracts.MinStageSize || value > RenderContracts.MaxStageSize) return fallback;
+        // H.264/HEVC yuv420p 要求偶数尺寸。
+        return value - (value % 2);
     }
 
     private void SetAsset(ref string? field, string? value, [CallerMemberName] string? name = null)

@@ -23,6 +23,8 @@ import {
   clampLyricAlign,
   clampLyricOffset,
   clampLyricWidth,
+  clampLyricHeight,
+  clampInfoOffset,
   clampLyricFade,
   clampBackgroundDim,
   clampBackgroundSaturation,
@@ -174,6 +176,28 @@ export function parseUrlOptions(search: string): Partial<RenderOptions> {
     const val = Number(p.get("lyricWidth"));
     if (Number.isFinite(val)) opts.lyricWidth = clampLyricWidth(val);
   }
+  if (p.has("lyricHeight")) {
+    const val = Number(p.get("lyricHeight"));
+    if (Number.isFinite(val)) opts.lyricHeight = clampLyricHeight(val);
+  }
+  if (p.has("infoOffsetX")) {
+    const val = Number(p.get("infoOffsetX"));
+    if (Number.isFinite(val)) opts.infoOffsetX = clampInfoOffset(val);
+  }
+  if (p.has("infoOffsetY")) {
+    const val = Number(p.get("infoOffsetY"));
+    if (Number.isFinite(val)) opts.infoOffsetY = clampInfoOffset(val);
+  }
+  // 宿主（GUI 预览/离线渲染）通过 URL width/height 提供精确舞台尺寸；
+  // 之后的运行时热更新走 setOptions 的 stageWidth/stageHeight 通道。
+  {
+    const width = Number(p.get("width"));
+    const height = Number(p.get("height"));
+    if (width && height && Number.isFinite(width) && Number.isFinite(height)) {
+      opts.stageWidth = Math.max(16, Math.round(width));
+      opts.stageHeight = Math.max(16, Math.round(height));
+    }
+  }
   if (p.has("lyricFade")) {
     const val = Number(p.get("lyricFade"));
     if (Number.isFinite(val)) opts.lyricFade = clampLyricFade(val);
@@ -220,14 +244,30 @@ export default function App() {
     });
   }, []);
 
-  /** 精确分辨率或预设 */
+  /** 精确分辨率或预设；stageWidth/Height（宿主热更新）优先于 URL，二者均缺省时回退预设。 */
   const preset = useMemo(() => {
-    const base = STAGE_PRESETS.find((p) => p.id === options.presetId) ?? STAGE_PRESETS[0];
-    const w = Number(params.get("width"));
-    const h = Number(params.get("height"));
-    if (!w || !h || !Number.isFinite(w) || !Number.isFinite(h)) return base;
-    return { ...base, width: Math.max(16, Math.round(w)), height: Math.max(16, Math.round(h)), fontVw: base.fontVw };
-  }, [options.presetId, params]);
+    const base = options.presetId === "custom"
+      ? { id: "custom", label: "自定义", name: "自定义", width: 1920, height: 1080, fontVw: 4.2 }
+      : STAGE_PRESETS.find((p) => p.id === options.presetId) ?? STAGE_PRESETS[0];
+    let width = base.width;
+    let height = base.height;
+    if (options.stageWidth && options.stageHeight) {
+      width = options.stageWidth;
+      height = options.stageHeight;
+    } else {
+      const w = Number(params.get("width"));
+      const h = Number(params.get("height"));
+      if (w && h && Number.isFinite(w) && Number.isFinite(h)) {
+        width = Math.max(16, Math.round(w));
+        height = Math.max(16, Math.round(h));
+      }
+    }
+    // 自定义尺寸没有预设 fontVw，按宽高比套用横屏/竖屏/方形的基准字号。
+    const fontVw = options.presetId === "custom"
+      ? (width === height ? 5.4 : height > width ? 7.0 : 4.2)
+      : base.fontVw;
+    return { ...base, width, height, fontVw };
+  }, [options.presetId, options.stageWidth, options.stageHeight, params]);
 
   const [track, setTrack] = useState<TrackAssets | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -998,10 +1038,15 @@ export default function App() {
 
       const originalDraw = gl.drawArrays;
       let albumLoaded = false;
+      let albumAppliedAt = 0;
       let validDraws = 0;
       gl.drawArrays = function (...args: Parameters<WebGLRenderingContext["drawArrays"]>) {
         originalDraw.apply(this, args);
         if (!albumLoaded || cancelled || gl.isContextLost()) return;
+        // MeshGradientRenderer 的新封面 mesh 以 ~500-550ms 交叉渐显叠加到旧底色上；
+        // 若就绪门在渐变起点就放行，离线抓取的首帧（片头停留帧）会是渐变途中
+        // 的旧底色而非封面配色。必须等交叉渐变基本完成后再判定就绪。
+        if (performance.now() - albumAppliedAt < 600) return;
         const pixel = new Uint8Array(4);
         try {
           gl.readPixels(
@@ -1049,6 +1094,7 @@ export default function App() {
       }
       if (cancelled) return;
       albumLoaded = true;
+      albumAppliedAt = performance.now();
       render.resume();
       // setAlbum 解码失败时只会静默 resolve，不会产生有效绘制；
       // 用有界超时报告明确错误，而不是让就绪等待悬挂到上游 120 秒超时。
@@ -1081,6 +1127,8 @@ export default function App() {
     ["--stage-bg-blur" as string]: `${options.backgroundBlur}px`,
     ["--artwork-scale" as string]: options.artworkScale,
     ["--lyric-fade" as string]: `${Math.round(preset.height * options.lyricFade)}px`,
+    ["--info-offset-x" as string]: options.infoOffsetX,
+    ["--info-offset-y" as string]: options.infoOffsetY,
   };
 
   const lyricContainerStyle: CSSProperties = {
@@ -1088,6 +1136,7 @@ export default function App() {
     textAlign: options.lyricAlign,
     transform: options.lyricOffset !== 0 ? `translateY(${options.lyricOffset}px)` : undefined,
     maxWidth: options.lyricWidth < 100 ? `${options.lyricWidth}%` : undefined,
+    height: options.lyricHeight < 100 ? `${options.lyricHeight}%` : undefined,
   };
 
   return (
@@ -1143,7 +1192,7 @@ export default function App() {
               <div className="stage-bg-dimmer" />
 
               {/* 舞台主要内容：左侧信息 + 右侧歌词 */}
-              <div className={`stage-content stage-content--${getStageLayoutClass(preset.id)}`}>
+              <div className={`stage-content stage-content--${getStageLayoutClass(preset.id, preset.width, preset.height)}`}>
                 {/* 封面与曲目信息 */}
                 {options.showSongInfo || options.showArtwork ? (
                   <div className="stage-left">

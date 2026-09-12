@@ -9,10 +9,20 @@
             <Grid Padding="24" UseLayoutRounding="True">
                 <StackPanel MaxWidth="760" HorizontalAlignment="Center" Spacing="16">
                     <StackPanel Spacing="4">
-                        <TextBlock Text="About" Style="{StaticResource TitleTextBlockStyle}" />
-                        <TextBlock Text="产品、版本、许可与项目来源" TextWrapping="Wrap"
+                        <TextBlock x:Name="PageTitle" Text="关于" Style="{StaticResource TitleTextBlockStyle}" />
+                        <TextBlock x:Name="PageSubtitle" Text="产品、版本、许可与项目来源" TextWrapping="Wrap"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
+
+                    <Border Style="{StaticResource WorkbenchCardStyle}">
+                        <StackPanel Spacing="10">
+                            <ComboBox x:Name="LanguageCombo" Header="界面语言" HorizontalAlignment="Stretch"
+                                      SelectionChanged="OnLanguageSelectionChanged"
+                                      ToolTipService.ToolTip="界面语言设置，切换后立即生效并记住选择" />
+                            <TextBlock x:Name="LanguageHint" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </Border>
 
                     <Border Style="{StaticResource WorkbenchCardStyle}">
                         <StackPanel Spacing="12">
@@ -22,29 +32,29 @@
                                     <TextBlock Text="AMLL Lyric MV Studio" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap" />
                                     <TextBlock x:Name="VersionText" AutomationProperties.AutomationId="AboutVersion"
                                                Text="产品版本" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    <TextBlock Text="作者：Cplay00" />
+                                    <TextBlock x:Name="AuthorText" Text="作者：Cplay00" />
                                 </StackPanel>
                             </StackPanel>
-                            <TextBlock Text="使用 Apple Music Like Lyrics（AMLL）视觉组件制作歌词 MV。"
+                            <TextBlock x:Name="DescriptionText" Text="使用 Apple Music Like Lyrics（AMLL）视觉组件制作歌词 MV。"
                                        TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
 
                     <Border Style="{StaticResource WorkbenchCardStyle}">
                         <StackPanel Spacing="10">
-                            <TextBlock Text="项目链接" Style="{StaticResource SubtitleTextBlockStyle}" />
-                            <HyperlinkButton Click="OnGitHubClick" HorizontalAlignment="Left"
+                            <TextBlock x:Name="LinksTitle" Text="项目链接" Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <HyperlinkButton x:Name="GitHubLink" Click="OnGitHubClick" HorizontalAlignment="Left"
                                              AutomationProperties.Name="在浏览器中打开 AMLL Lyric MV Studio GitHub 仓库">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE943;" />
                                     <TextBlock Text="https://github.com/Cplay00/amll-lyric-mv-studio" TextWrapping="Wrap" />
                                 </StackPanel>
                             </HyperlinkButton>
-                            <HyperlinkButton Click="OnUpstreamClick" HorizontalAlignment="Left"
+                            <HyperlinkButton x:Name="UpstreamLink" Click="OnUpstreamClick" HorizontalAlignment="Left"
                                              AutomationProperties.Name="在浏览器中打开 AMLL 上游项目">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <SymbolIcon Symbol="Link" />
-                                    <TextBlock Text="Apple Music Like Lyrics（AMLL）上游" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="UpstreamText" Text="Apple Music Like Lyrics（AMLL）上游" TextWrapping="Wrap" />
                                 </StackPanel>
                             </HyperlinkButton>
                         </StackPanel>
@@ -52,39 +62,39 @@
 
                     <Border Style="{StaticResource WorkbenchCardStyle}">
                         <StackPanel Spacing="10">
-                            <TextBlock Text="许可与发行版本" Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <TextBlock x:Name="LicenseTitle" Text="许可与发行版本" Style="{StaticResource SubtitleTextBlockStyle}" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <SymbolIcon Symbol="Permissions" />
                                 <TextBlock Text="AGPL-3.0-only" FontWeight="SemiBold" />
                             </StackPanel>
-                            <TextBlock Text="AMLL Lyric MV Studio 与 AMLL 渲染组件依据 AGPL-3.0-only 发布；第三方组件适用其各自许可。"
+                            <TextBlock x:Name="LicenseText" Text="AMLL Lyric MV Studio 与 AMLL 渲染组件依据 AGPL-3.0-only 发布；第三方组件适用其各自许可。"
                                        TextWrapping="Wrap" />
-                            <TextBlock Text="Full 完整版内嵌 Chromium，可直接用于渲染；Lite 精简版不含 Chromium，需要系统已安装 Microsoft Edge 或 Google Chrome。"
+                            <TextBlock x:Name="EditionText" Text="Full 完整版内嵌 Chromium，可直接用于渲染；Lite 精简版不含 Chromium，需要系统已安装 Microsoft Edge 或 Google Chrome。"
                                        TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
                     </Border>
 
                     <Border Style="{StaticResource WorkbenchCardStyle}">
                         <StackPanel Spacing="10">
-                            <TextBlock Text="第三方声明与法律文件" Style="{StaticResource SubtitleTextBlockStyle}" />
-                            <TextBlock Text="入口仅打开随应用分发的只读文本文件，不执行文件内容。"
+                            <TextBlock x:Name="LegalTitle" Text="第三方声明与法律文件" Style="{StaticResource SubtitleTextBlockStyle}" />
+                            <TextBlock x:Name="LegalNote" Text="入口仅打开随应用分发的只读文本文件，不执行文件内容。"
                                        TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <Button Click="OnLicenseClick" HorizontalAlignment="Stretch">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <SymbolIcon Symbol="Document" />
-                                    <TextBlock Text="打开 AGPL 许可证" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="OpenLicenseText" Text="打开 AGPL 许可证" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Button>
                             <Button Click="OnThirdPartyClick" HorizontalAlignment="Stretch">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <SymbolIcon Symbol="Document" />
-                                    <TextBlock Text="打开第三方声明" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="OpenThirdPartyText" Text="打开第三方声明" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Button>
                             <Button Click="OnLegalNoticeClick" HorizontalAlignment="Stretch">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <SymbolIcon Symbol="Document" />
-                                    <TextBlock Text="打开法律声明" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="OpenNoticeText" Text="打开法律声明" TextWrapping="Wrap" />
                                 </StackPanel>
                             </Button>
                             <muxc:InfoBar x:Name="OpenInfoBar" IsOpen="False" IsClosable="True" />

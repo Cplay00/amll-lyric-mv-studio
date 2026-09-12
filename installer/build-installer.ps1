@@ -31,10 +31,14 @@ $NodeSha256 = 'EDACA9BD58EC8E92037DAC4E877D52F6B8F430B81C18B57E264B4E2FB111CD56'
 $WebView2Url = 'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/474c9f1d-0fd5-49da-b3b0-df536d328170/MicrosoftEdgeWebview2Setup.exe'
 $WebView2Sha256 = '17DEBF797A6C737959BC588236E897936FFAC1AF5F7E515E674AB32F9EDFE719'
 $FfmpegVersion = '8.1.2'
-# Self-built minimal static FFmpeg; produced by installer/cache/amll-ffmpeg-build-source/build.sh.
-$FfmpegArchive = 'ffmpeg-8.1.2-amll-minimal-gpl.zip'
-$FfmpegSha256 = '03DC06C3C02CE318EDAE209D4FD8EE7603AFB554BFE89B60245540A868704C88'
-$FfmpegSourceBundleName = 'amll-ffmpeg-build-source'
+# Gyan "essentials" static FFmpeg build: includes libx264/libx265 plus the
+# AMF/NVENC/QSV hardware encoders (the self-built v0.2.0 minimal build only
+# compiled x264 + NVENC, which made AMD AMF permanently unavailable).
+# Provenance/corresponding-source offer bundle: installer/cache/gyan-build-source.
+$FfmpegArchive = 'ffmpeg-8.1.2-essentials_build.zip'
+$FfmpegUrl = 'https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip'
+$FfmpegSha256 = 'DB580001CAA24AC104C8CB856CD113A87B0A443F7BDF47D8C12B1D740584A2EC'
+$FfmpegSourceBundleName = 'gyan-build-source'
 $ChromiumRevision = '1243'
 $ChromiumVersion = '153.0.8010.12'
 $ChromiumCacheArchive = "playwright-chromium-$ChromiumRevision-win64.zip"
@@ -322,13 +326,7 @@ $nodeZip = Join-Path $CacheRoot $NodeArchive
 $ffmpegZip = Join-Path $CacheRoot $FfmpegArchive
 $webViewInstaller = Join-Path $CacheRoot 'MicrosoftEdgeWebview2Setup.exe'
 Invoke-Download -Uri $NodeUrl -Destination $nodeZip -Sha256 $NodeSha256
-if (-not (Test-Path -LiteralPath $ffmpegZip -PathType Leaf)) {
-    throw "Locally built FFmpeg archive missing: $ffmpegZip. Produce it via installer/cache/$FfmpegSourceBundleName/build.sh."
-}
-$ffmpegZipActualSha256 = Get-Sha256 $ffmpegZip
-if ($ffmpegZipActualSha256 -ne $FfmpegSha256) {
-    throw "SHA256 mismatch for $ffmpegZip. Expected $FfmpegSha256, got $ffmpegZipActualSha256"
-}
+Invoke-Download -Uri $FfmpegUrl -Destination $ffmpegZip -Sha256 $FfmpegSha256
 Invoke-Download -Uri $WebView2Url -Destination $webViewInstaller `
     -Sha256 $WebView2Sha256 -RequireMicrosoftSignature
 
@@ -378,7 +376,7 @@ Write-Host "Packaged $($runtimePackages.Count) runtime npm packages: $($runtimeP
 $ffmpegTemp = Join-Path $TempRoot 'ffmpeg'
 Remove-Item -LiteralPath $ffmpegTemp -Recurse -Force -ErrorAction SilentlyContinue
 Expand-Archive -LiteralPath $ffmpegZip -DestinationPath $ffmpegTemp -Force
-$ffmpegArchiveRoot = Join-Path $ffmpegTemp 'ffmpeg-8.1.2-amll-minimal-gpl'
+$ffmpegArchiveRoot = Join-Path $ffmpegTemp 'ffmpeg-8.1.2-essentials_build'
 if (-not (Test-Path -LiteralPath $ffmpegArchiveRoot -PathType Container)) {
     throw "Unexpected FFmpeg archive layout: $ffmpegArchiveRoot is missing."
 }
@@ -389,7 +387,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ffmpegDestination
 Copy-Item -LiteralPath $ffmpegSource -Destination $ffmpegDestination -Force
 $ffmpegLegalRoot = Join-Path $StagingRoot 'licenses\ffmpeg'
 New-Item -ItemType Directory -Force -Path $ffmpegLegalRoot | Out-Null
-foreach ($legalName in @('LICENSE-GPL-3.0.txt', 'BUILD-INFORMATION.txt')) {
+foreach ($legalName in @('LICENSE')) {
     $legalSource = Join-Path $ffmpegArchiveRoot $legalName
     if (-not (Test-Path -LiteralPath $legalSource -PathType Leaf)) {
         throw "Required FFmpeg legal file missing from $FfmpegArchive`: $legalName"

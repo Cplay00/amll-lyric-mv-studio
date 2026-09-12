@@ -149,7 +149,7 @@ static Task TestCanonicalStateContractAsync()
     state.Head = RenderContracts.MaxTimingPaddingMs + 1;
     state.Tail = -1;
     state.SecondaryMode = "translated";
-    state.LyricWidth = 81;
+    state.LyricWidth = 101;
     state.LyricOffset = -700;
     state.LyricFade = 0.5;
     state.BackgroundSaturation = double.NaN;
@@ -159,7 +159,9 @@ static Task TestCanonicalStateContractAsync()
     state.BrowserGpu = "true";
     state.AudioCodec = "libopus";
     Assert(state.SecondaryMode == "both", "invalid SecondaryMode must normalize to both");
-    Assert(state.LyricWidth == 80 && state.LyricOffset == -600, "lyric ranges must clamp to canonical bounds");
+    Assert(state.LyricWidth == 100 && state.LyricOffset == -600, "lyric ranges must clamp to canonical bounds");
+    Assert(state.LyricHeight == 100 && state.InfoOffsetX == 0 && state.InfoOffsetY == 0,
+        "lyric height and info offsets must clamp to canonical bounds");
     Assert(state.LyricFade == 0.3, "LyricFade must clamp to 0..0.3");
     Assert(state.ShowArtist && state.ShowAlbum, "artist and album toggles must default to on");
     Assert(state.BackgroundSaturation == 1.2, "non-finite saturation must normalize");
@@ -167,6 +169,19 @@ static Task TestCanonicalStateContractAsync()
         "visible GUI ranges must clamp to the shared contract");
     Assert(state.BrowserGpu == "auto" && state.AudioCodec == "aac", "invalid enum values must not enter state");
     Assert(state.Head == RenderContracts.MaxTimingPaddingMs && state.Tail == 0, "timing fields must clamp to the Node CLI range");
+    Assert(state.CustomStageWidth == 1920 && state.CustomStageHeight == 1080,
+        "custom stage sizes must default to 1920x1080");
+    state.CustomStageWidth = 1000; state.CustomStageHeight = 1081;
+    Assert(state.CustomStageWidth == 1000 && state.CustomStageHeight == 1080,
+        "custom stage sizes must clamp into range and drop to even pixels");
+    state.CustomStageWidth = 9999;
+    Assert(state.CustomStageWidth == 1920, "out-of-range custom widths must fall back to the default");
+    state.Preset = "custom";
+    Assert(state.Preset == "custom", "the custom stage preset must be accepted");
+    Assert(StagePresets.EffectiveDimensions("custom", 1000, 1080) == (1000, 1080),
+        "custom presets must resolve to the user-entered dimensions");
+    Assert(StagePresets.EffectiveDimensions("1080p", 1000, 1080) == (1920, 1080),
+        "standard presets must ignore custom dimensions");
     return Task.CompletedTask;
 }
 
@@ -261,13 +276,23 @@ static async Task TestPreviewQueryAndPatchAsync()
         Assert(query.Any(item => item == "showArtist=true"), "preview query must include showArtist");
         Assert(query.Any(item => item == "showAlbum=true"), "preview query must include showAlbum");
         Assert(query.Any(item => item == "lyricFade=0.08"), "preview query must include default lyricFade");
+        Assert(query.Any(item => item == "lyricHeight=100"), "preview query must include the lyric area height");
+        Assert(query.Any(item => item == "infoOffsetX=0" || item == "infoOffsetY=0"),
+            "preview query must include info-block offsets");
+        Assert(query.Any(item => item.StartsWith("width=", StringComparison.Ordinal)) &&
+            query.Any(item => item.StartsWith("height=", StringComparison.Ordinal)),
+            "preview query must carry explicit stage dimensions");
         Assert(!query.Any(item => item.StartsWith("tail=", StringComparison.Ordinal)), "export-only fields must stay out of preview query");
         string patch = PreviewScripts.ApplyOptions(state);
         Assert(patch.Contains("window.__amllMv", StringComparison.Ordinal) && patch.Contains("setOptions", StringComparison.Ordinal),
             "visual updates must call the setOptions bridge");
         Assert(patch.Contains("\"presetId\":\"vertical\"", StringComparison.Ordinal), "patch must map Preset to presetId");
+        Assert(patch.Contains("\"stageWidth\":1080", StringComparison.Ordinal) && patch.Contains("\"stageHeight\":1920", StringComparison.Ordinal),
+            "patch must carry the effective stage dimensions");
         Assert(patch.Contains("\"showArtist\":true", StringComparison.Ordinal) && patch.Contains("\"lyricFade\":0.08", StringComparison.Ordinal),
             "patch must carry artist toggle and lyric fade");
+        Assert(patch.Contains("\"lyricHeight\":100", StringComparison.Ordinal) && patch.Contains("\"infoOffsetX\":0", StringComparison.Ordinal),
+            "patch must carry lyric height and info offsets");
         Assert(!patch.Contains("audioCodec", StringComparison.Ordinal) && !patch.Contains("tail", StringComparison.Ordinal),
             "export-only fields must stay out of live patch");
     }
@@ -487,7 +512,8 @@ static Task TestRenderArgumentsAsync()
     Assert(ValueOf(args, "--browser") == @"D:\runtime\msedge.exe", "absolute browser path missing");
     string[] required = ["--head", "--tail", "--title", "--artist", "--album", "--font-family", "--font-scale", "--font-weight",
         "--secondary-mode", "--show-song-info", "--show-artist", "--show-album", "--show-artwork", "--show-controls", "--artwork-scale",
-        "--lyric-align", "--lyric-offset", "--lyric-width", "--lyric-fade", "--background-dim", "--background-saturation",
+        "--lyric-align", "--lyric-offset", "--lyric-width", "--lyric-height", "--info-offset-x", "--info-offset-y",
+        "--lyric-fade", "--background-dim", "--background-saturation",
         "--background-blur", "--encoder", "--encoder-preset", "--quality", "--audio-codec", "--audio-bitrate", "--browser-gpu"];
     foreach (string flag in required) Assert(args.Contains(flag), $"missing CLI flag {flag}");
     AssertThrows(() => RenderRunner.BuildArguments("render-mv.mjs", WithChanges(lyricFade: 0.5), supportedPresets: ["p4"]), "out-of-range LyricFade must be rejected");
@@ -510,6 +536,15 @@ static Task TestRenderArgumentsAsync()
         "relative GUI request output must be rejected");
     AssertThrows(() => RenderRunner.BuildArguments("render-mv.mjs", WithChanges(outputPath: ""), supportedPresets: ["p4"]),
         "blank GUI request output must be rejected after GUI resolution");
+
+    var customSized = CanonicalRequest(stageWidth: 1080, stageHeight: 1920);
+    IReadOnlyList<string> sizedArgs = RenderRunner.BuildArguments("render-mv.mjs", customSized, @"D:\runtime\ffmpeg.exe", @"D:\runtime\msedge.exe", ["p1", "p4", "p7"]);
+    Assert(ValueOf(sizedArgs, "--width") == "1080" && ValueOf(sizedArgs, "--height") == "1920",
+        "custom stage dimensions must be forwarded to the renderer");
+    AssertThrows(() => RenderRunner.BuildArguments("render-mv.mjs", CanonicalRequest(stageWidth: 1081, stageHeight: 1080), supportedPresets: ["p4"]),
+        "odd custom stage dimensions must be rejected before capture");
+    AssertThrows(() => RenderRunner.BuildArguments("render-mv.mjs", CanonicalRequest(stageWidth: 128, stageHeight: 720), supportedPresets: ["p4"]),
+        "custom stage dimensions below the GUI minimum must be rejected");
     return Task.CompletedTask;
 }
 
@@ -602,7 +637,9 @@ static RenderRequest CanonicalRequest(
     int head = 250,
     int tail = 1200,
     double lyricFade = 0.12,
-    string outputPath = @"D:\Music\song.mp4") => new()
+    string outputPath = @"D:\Music\song.mp4",
+    int? stageWidth = null,
+    int? stageHeight = null) => new()
 {
     AudioPath = @"D:\Music\song.flac", OutputPath = outputPath, Title = "Track", Artist = "Artist", Album = "Album",
     FontFamily = "Noto Sans CJK SC", FontScale = 1.25, FontWeight = 700,
@@ -611,6 +648,7 @@ static RenderRequest CanonicalRequest(
     BackgroundDim = 0.35, BackgroundSaturation = 1.1, BackgroundBlur = 24.5,
     FlowSpeed = 2.5, RenderScale = 0.75, Head = head, Tail = tail, Encoder = encoder, EncoderPreset = encoderPreset,
     Quality = 17, AudioCodec = audioCodec, AudioBitrate = "320k", BrowserGpu = "off",
+    StageWidth = stageWidth, StageHeight = stageHeight,
 };
 
 static RenderRequest CloneWithAudio(RenderRequest source, string audioPath) => new()
