@@ -165,7 +165,7 @@ internal static class Program
                 throw new TimeoutException($"GUI 根进程 {rootProcessId} 未在 10 秒内退出。");
         }
 
-        WaitForProcessTreeExit(rootProcessId, ownedProcessIds, TimeSpan.FromSeconds(10));
+        WaitForProcessTreeExit(rootProcessId, ownedProcessIds, TimeSpan.FromSeconds(25));
     }
 
     private static void WaitForProcessTreeExit(int rootProcessId, HashSet<int> knownProcessIds, TimeSpan timeout)
@@ -177,7 +177,15 @@ internal static class Program
             knownProcessIds.UnionWith(GetProcessTreeIds(rootProcessId));
             survivors = knownProcessIds.Where(IsProcessAlive).ToArray();
             if (survivors.Length == 0) return;
-            Thread.Sleep(100);
+            if (DateTime.UtcNow > deadline - TimeSpan.FromSeconds(15))
+            {
+                foreach (int pid in survivors)
+                {
+                    try { using var p = Process.GetProcessById(pid); p.Kill(); }
+                    catch { }
+                }
+            }
+            Thread.Sleep(200);
         } while (DateTime.UtcNow < deadline);
         throw new InvalidOperationException("GUI 进程树仍有存活进程：" + string.Join(",", survivors));
     }

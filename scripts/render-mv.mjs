@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, mkdtempSync, promises as fsPromises, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -438,6 +438,8 @@ function browserLaunchArgs(width, height, gpuMode) {
   const launchArgs = [
     "--autoplay-policy=no-user-gesture-required", "--mute-audio",
     "--disable-features=CalculateNativeWinOcclusion", `--window-size=${width},${height}`,
+    "--disable-frame-rate-limit", "--disable-gpu-vsync",
+    "--enable-gpu-rasterization", "--enable-zero-copy",
   ];
   if (gpuMode === "on") launchArgs.push("--ignore-gpu-blocklist");
   if (gpuMode === "off") launchArgs.push("--use-angle=swiftshader", "--enable-unsafe-swiftshader");
@@ -533,12 +535,13 @@ function makeEmitter(enabled) {
   };
 }
 
-function runEncoder(command, commandArgs, cwd, durationMs, emitProgress) {
+function runEncoder(command, commandArgs, cwd, durationMs, totalFrames, emitProgress) {
   let previousPercent = -1;
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, commandArgs, { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
     let progressBuffer = "";
+    let currentBlock = {};
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
       if (stderr.length > 30000) stderr = stderr.slice(-30000);
@@ -552,24 +555,33 @@ function runEncoder(command, commandArgs, cwd, durationMs, emitProgress) {
         if (equals < 0) continue;
         const key = line.slice(0, equals);
         const value = line.slice(equals + 1);
-        // 优先解析 out_time 的 HH:MM:SS.ffffff 字符串与 out_time_us：
-        // out_time_ms 在新旧 ffmpeg 间单位不一致（历史上实为微秒），弃用。
-        let encodedMs = NaN;
-        if (key === "out_time" && /^\d+:\d+:\d+(\.\d+)?$/.test(value)) {
-          const [h, m, s] = value.split(":").map(Number);
-          encodedMs = (h * 3600 + m * 60 + s) * 1000;
-        } else if (key === "out_time_us") {
-          encodedMs = Number(value) / 1000;
+        currentBlock[key] = value;
+        if (key === "progress") {
+          let encodedMs = NaN;
+          const outTime = currentBlock.out_time;
+          const outTimeUs = currentBlock.out_time_us;
+          if (typeof outTime === "string" && /^\d+:\d+:\d+(\.\d+)?$/.test(outTime)) {
+            const [h, m, s] = outTime.split(":").map(Number);
+            encodedMs = (h * 3600 + m * 60 + s) * 1000;
+          } else if (outTimeUs) {
+            encodedMs = Number(outTimeUs) / 1000;
+          }
+          const encodedFrames = Number(currentBlock.frame) || 0;
+          if (Number.isFinite(encodedMs)) {
+            const percent = Math.min(99, Math.max(0, Math.round((encodedMs / durationMs) * 100)));
+            if (percent !== previousPercent || currentBlock.progress === "end") {
+              previousPercent = percent;
+              emitProgress("encode", {
+                encodedMs: Math.max(0, Math.min(Math.round(encodedMs), Math.round(durationMs))),
+                durationMs: Math.round(durationMs),
+                percent,
+                frames: encodedFrames,
+                totalFrames: Number.isFinite(totalFrames) ? totalFrames : undefined,
+              });
+            }
+          }
+          currentBlock = {};
         }
-        if (!Number.isFinite(encodedMs)) continue;
-        const percent = Math.min(99, Math.max(0, Math.round((encodedMs / durationMs) * 100)));
-        if (percent === previousPercent) continue;
-        previousPercent = percent;
-        emitProgress("encode", {
-          encodedMs: Math.min(Math.round(encodedMs), Math.round(durationMs)),
-          durationMs: Math.round(durationMs),
-          percent,
-        });
       }
     });
     child.on("error", (error) => rejectPromise(new Error(`ffmpeg 编码无法启动：${error.message}`)));
@@ -687,13 +699,23 @@ async function render(options, ffmpegProbe) {
     let frameWriteError = null;
     let firstAcceptedFramePromise;
     const firstAcceptedFrame = new Promise((resolveFirstFrame) => { firstAcceptedFramePromise = resolveFirstFrame; });
-    let writeChain = Promise.resolve();
+    const MAX_IN_FLIGHT_WRITES = 32;
+    let inFlightWrites = 0;
+    const writePromises = new Set();
+    const pendingAcks = [];
+    const notifyWriteFinished = () => {
+      inFlightWrites--;
+      if (pendingAcks.length > 0 && inFlightWrites < MAX_IN_FLIGHT_WRITES) {
+        const nextAck = pendingAcks.shift();
+        nextAck?.();
+      }
+    };
     cdp.on("Page.screencastFrame", (frame) => {
       const receivedAtMs = performance.timeOrigin + performance.now();
       const timestampMs = Number(frame.metadata?.timestamp) * 1000;
-      const ack = () => { void cdp.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch(() => undefined); };
+      const sendAck = () => { void cdp.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch(() => undefined); };
       if (!acceptingFrames) {
-        ack();
+        sendAck();
         return;
       }
       const index = frameIndex++;
@@ -701,18 +723,28 @@ async function render(options, ffmpegProbe) {
         acceptingFrames = false;
         firstAcceptedFramePromise({ timestampMs, receivedAtMs });
       }
-      // 写完再 ack：Chromium screencast 借未 ack 的帧自然降速，慢盘下不会无限积压内存
-      writeChain = writeChain.then(() => {
-        try {
-          writeFileSync(join(framesDir, `f${String(index).padStart(8, "0")}.jpg`), Buffer.from(frame.data, "base64"));
-          captured.push({ index, timestampMs, receivedAtMs });
-        } catch (error) {
-          if (!frameWriteError) frameWriteError = error;
-        }
-      }).finally(ack);
+      inFlightWrites++;
+      if (inFlightWrites < MAX_IN_FLIGHT_WRITES) {
+        sendAck();
+      } else {
+        pendingAcks.push(sendAck);
+      }
+      const writePromise = fsPromises.writeFile(
+        join(framesDir, `f${String(index).padStart(8, "0")}.jpg`),
+        Buffer.from(frame.data, "base64"),
+      ).then(() => {
+        captured.push({ index, timestampMs, receivedAtMs });
+      }).catch((error) => {
+        if (!frameWriteError) frameWriteError = error;
+      }).finally(() => {
+        writePromises.delete(writePromise);
+        notifyWriteFinished();
+      });
+      writePromises.add(writePromise);
     });
     acceptingFrames = true;
-    await cdp.send("Page.startScreencast", { format: "jpeg", quality: 95, maxWidth: options.width, maxHeight: options.height, everyNthFrame: 1 });
+    const screencastQuality = options.fps > 60 ? 82 : 88;
+    await cdp.send("Page.startScreencast", { format: "jpeg", quality: screencastQuality, maxWidth: options.width, maxHeight: options.height, everyNthFrame: 1 });
     const firstAccepted = await Promise.race([
       firstAcceptedFrame,
       page.waitForTimeout(10_000).then(() => { throw new Error("等待首个捕获帧超时。"); }),
@@ -783,9 +815,11 @@ async function render(options, ffmpegProbe) {
     }
     acceptingFrames = false;
     await cdp.send("Page.stopScreencast");
-    await writeChain;
+    while (pendingAcks.length > 0) pendingAcks.shift()?.();
+    await Promise.all([...writePromises]);
     if (frameWriteError) throw frameWriteError;
     if (captured.length === 0) throw new Error("未捕获到有效画面帧。");
+    captured.sort((a, b) => a.index - b.index);
 
     const normalizedCaptured = normalizeCapturedFrames(captured);
     // CDP ScreencastFrame 的 metadata.timestamp 是 Unix epoch 秒（Chrome 96+），
@@ -813,7 +847,8 @@ async function render(options, ffmpegProbe) {
       startTimestampMs: timelineOriginEpochMs,
     });
     writeFileSync(join(framesDir, "frames.txt"), formatConcatTimeline(timeline.selectedIndices, options.fps), "utf8");
-    log(`捕获 ${captured.length} 帧，CFR ${timeline.totalFrames} 帧，音频偏移 ${audioOffsetMs.toFixed(1)}ms（首个有效捕获帧 ${firstCaptureMs - captureOriginEpochMs >= 0 ? "+" : ""}${(firstCaptureMs - captureOriginEpochMs).toFixed(1)}ms，实测播放漂移 ${Number.isFinite(audioStartDriftMs) ? `${audioStartDriftMs >= 0 ? "+" : ""}${audioStartDriftMs.toFixed(1)}ms` : "不可用"}，首帧相对启动 ${Number.isFinite(measuredAudioOffsetMs) ? measuredAudioOffsetMs.toFixed(1) : "不可用"}ms；CFR 原点按实测 playing 反向校准，FFmpeg 严格采用计划 offset）。`);
+    const actualFps = captured.length / (outputDurationMs / 1000);
+    log(`捕获 ${captured.length} 帧（实测约 ${actualFps.toFixed(1)} fps），重采样 CFR 时间轴 ${timeline.totalFrames} 帧（目标 ${options.fps} fps），音频偏移 ${audioOffsetMs.toFixed(1)}ms（首个有效捕获帧 ${firstCaptureMs - captureOriginEpochMs >= 0 ? "+" : ""}${(firstCaptureMs - captureOriginEpochMs).toFixed(1)}ms，实测播放漂移 ${Number.isFinite(audioStartDriftMs) ? `${audioStartDriftMs >= 0 ? "+" : ""}${audioStartDriftMs.toFixed(1)}ms` : "不可用"}，首帧相对启动 ${Number.isFinite(measuredAudioOffsetMs) ? measuredAudioOffsetMs.toFixed(1) : "不可用"}ms；CFR 原点按实测 playing 反向校准，FFmpeg 严格采用计划 offset）。`);
 
     const outputPath = options.outputPath;
     mkdirSync(dirname(outputPath), { recursive: true });
@@ -828,6 +863,7 @@ async function render(options, ffmpegProbe) {
       const amfRateControl = ffmpegProbe.capabilities.get(selectedEncoder)?.rateControl ?? null;
       const ffmpegArgs = buildFfmpegArgs({
         audioPath: options.audioPath, outputPath, fps: options.fps, durationMs: timeline.durationMs,
+        totalFrames: timeline.totalFrames,
         audioOffsetMs, headMs: options.headMs, encoder: selectedEncoder, encoderPreset,
         quality: options.quality, audioCodec: options.audioCodec, audioBitrate: options.audioBitrate,
         ffmpegMajorVersion: ffmpegProbe.majorVersion, amfRateControl,
@@ -836,7 +872,7 @@ async function render(options, ffmpegProbe) {
         ? "，threads 0（自动多核）"
         : "";
       log(`编码器 ${selectedEncoder}，preset ${encoderPreset}，质量 ${options.quality}${softwareThreadNote}，临时帧 ${framesDir}`);
-      await runEncoder(options.ffmpegPath, ffmpegArgs, framesDir, timeline.durationMs, emitProgress);
+      await runEncoder(options.ffmpegPath, ffmpegArgs, framesDir, timeline.durationMs, timeline.totalFrames, emitProgress);
       return selectedEncoder;
     };
     let usedEncoder = encoder;

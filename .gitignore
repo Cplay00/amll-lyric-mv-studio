@@ -19,17 +19,21 @@ gui/tests/**/obj/
 *.suo
 TestResults/
 
-# 安装器产物与缓存
-installer/cache/
-installer/output/
-installer/staging/
-installer/.tmp/
+# 安装器产物与本地状态
 installer/.mimosa/
 *.partial
+
+# 构建工具与缓存（build-tools/scripts 下的构建脚本保持受 git 跟踪）
+build-tools/cache/
+build-tools/output/
+build-tools/.tmp/
+build-tools/tools/
 
 # 本地工具与临时文件
 .mimosa/
 .playwright-cli/
+.v2c/
+.video_agent/
 CONCAT
 *.log
 .DS_Store

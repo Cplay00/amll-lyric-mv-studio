@@ -10,6 +10,7 @@ public sealed class RenderProgressEventArgs : EventArgs
     public string Stage { get; init; } = "";
     public int Percent { get; init; }
     public int Frames { get; init; }
+    public int TotalFrames { get; init; }
     public int LyricLines { get; init; }
     public long ElapsedMs { get; init; }
     public long TotalMs { get; init; }
@@ -517,8 +518,10 @@ public sealed class RenderRunner : IDisposable
                 Stage = GetString(root, "stage") ?? "",
                 Percent = GetInt32(root, "percent"),
                 Frames = GetInt32(root, "frames"),
+                TotalFrames = GetInt32(root, "totalFrames"),
                 LyricLines = GetInt32(root, "lyricLines"),
-                ElapsedMs = GetInt64(root, "elapsedMs"),
+                // encode 阶段使用 encodedMs，capture 阶段使用 elapsedMs
+                ElapsedMs = GetInt64(root, "encodedMs", "elapsedMs"),
                 // 新协议使用 durationMs；兼容旧脚本 totalMs。
                 TotalMs = GetInt64(root, "durationMs", "totalMs"),
                 OutputPath = GetString(root, "outPath"),

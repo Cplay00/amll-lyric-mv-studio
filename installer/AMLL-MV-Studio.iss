@@ -1,6 +1,6 @@
 #define MyAppName "AMLL Lyric MV Studio"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.1"
+  #define MyAppVersion "0.2.2"
 #endif
 #ifndef MyAppFlavor
   #define MyAppFlavor "Full"
@@ -31,7 +31,9 @@ UsedUserAreasWarning=no
 Uninstallable=yes
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
-OutputDir=output
+; Staging and output live in build-tools (see build-tools\scripts\build-installer.ps1);
+; paths resolve relative to this .iss file's directory.
+OutputDir=..\build-tools\output
 OutputBaseFilename={#MyAppSetupName}
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -52,7 +54,7 @@ MinVersion=10.0.17763
 LicenseFile=LICENSE.txt
 InfoBeforeFile=NOTICE.txt
 InfoAfterFile=THIRD-PARTY-NOTICES.md
-SetupIconFile=staging\Assets\app.ico
+SetupIconFile=..\build-tools\.tmp\staging\Assets\app.ico
 VersionInfoVersion={#MyAppVersion}.0
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
@@ -75,8 +77,8 @@ Name: "startmenu"; Description: "{cm:CreateStartMenuShortcut}"; GroupDescription
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "staging\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "staging\runtime\webview2\MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; DestName: "MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy noencryption
+Source: "..\build-tools\.tmp\staging\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build-tools\.tmp\staging\runtime\webview2\MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; DestName: "MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy noencryption
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: startmenu

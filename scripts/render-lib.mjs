@@ -162,7 +162,7 @@ export function discoverDevelopmentFfmpeg(scriptPath) {
   const scriptsDir = dirname(resolve(scriptPath));
   if (basename(scriptsDir).toLowerCase() !== "scripts") return null;
   const projectRoot = dirname(scriptsDir);
-  const ffmpegPath = join(projectRoot, "installer", "staging", "runtime", "ffmpeg", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+  const ffmpegPath = join(projectRoot, "build-tools", ".tmp", "staging", "runtime", "ffmpeg", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
   return existsSync(ffmpegPath) ? ffmpegPath : null;
 }
 
@@ -175,7 +175,7 @@ export function resolveRuntimeTools({ scriptPath, explicitFfmpeg, explicitBrowse
       : bundled.ffmpegPath
         ? { path: bundled.ffmpegPath, source: "安装布局 runtime/ffmpeg" }
         : developmentFfmpeg
-          ? { path: developmentFfmpeg, source: "开发布局 installer/staging/runtime/ffmpeg" }
+          ? { path: developmentFfmpeg, source: "开发布局 build-tools/.tmp/staging/runtime/ffmpeg" }
           : env.FFMPEG_PATH
             ? { path: String(env.FFMPEG_PATH), source: "FFMPEG_PATH" }
             : null,
@@ -286,6 +286,7 @@ export function buildCfrTimeline(captured, fps, durationMs, options = {}) {
     throw new Error("startTimestampMs 必须是有限数值。");
   }
   const totalFrames = Math.max(1, Math.ceil((durationMs * fps) / 1000));
+  const frameIntervalMs = 1000 / fps;
   const selectedIndices = [];
   let sourceCursor = 0;
   for (let targetIndex = 0; targetIndex < totalFrames; targetIndex++) {
@@ -296,7 +297,22 @@ export function buildCfrTimeline(captured, fps, durationMs, options = {}) {
     ) {
       sourceCursor++;
     }
-    selectedIndices.push(frames[sourceCursor].index);
+    let chosenCursor = sourceCursor;
+    if (sourceCursor + 1 < frames.length) {
+      const currentFrame = frames[sourceCursor];
+      const nextFrame = frames[sourceCursor + 1];
+      const interFrameDelta = nextFrame.timestampMs - currentFrame.timestampMs;
+      // 仅当相邻两帧属于连续采样流（间隔在 1.5 个帧周期内）时，才按就近消除微小抖动；
+      // 若间隔过大（如片头首帧保持、大幅停顿），保持当前帧直到下一帧正式到达，防止事件提前穿帮。
+      if (interFrameDelta <= frameIntervalMs * 1.5) {
+        const diffCurrent = Math.abs(currentFrame.timestampMs - targetTimestampMs);
+        const diffNext = Math.abs(nextFrame.timestampMs - targetTimestampMs);
+        if (diffNext < diffCurrent) {
+          chosenCursor = sourceCursor + 1;
+        }
+      }
+    }
+    selectedIndices.push(frames[chosenCursor].index);
   }
   return {
     frames,
@@ -417,6 +433,7 @@ export function buildFfmpegArgs(options) {
     audioCodec,
     audioBitrate,
     ffmpegMajorVersion,
+    totalFrames,
   } = options;
   assertCopyTimingCompatible({
     audioCodec,
@@ -445,6 +462,9 @@ export function buildFfmpegArgs(options) {
     ...getFfmpegCfrArgs(ffmpegMajorVersion),
     "-c:a", audioCodec,
   );
+  if (totalFrames && Number.isFinite(totalFrames) && totalFrames > 0) {
+    args.push("-frames:v", String(totalFrames));
+  }
   if (audioCodec === "aac" && audioBitrate) args.push("-b:a", audioBitrate);
   args.push("-t", (durationMs / 1000).toFixed(6));
   if ([".mp4", ".mov"].includes(extname(outputPath).toLowerCase())) {

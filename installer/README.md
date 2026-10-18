@@ -1,7 +1,10 @@
 # AMLL Lyric MV Studio Windows installer and release build
 
-This directory is self-contained release infrastructure; generated downloads,
-staging files, and installers remain under `installer/`.
+The installer definition (`.iss`, legal texts, languages) lives here. Build
+scripts, tooling, caches, and generated output live in the workspace-local
+`build-tools\` directory: scripts under `build-tools\scripts`, verified
+downloads under `build-tools\cache`, compiled installers under
+`build-tools\output`, and the staging tree under `build-tools\.tmp\staging`.
 
 ## Build
 
@@ -9,23 +12,24 @@ From PowerShell on Windows:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\installer\build-installer.ps1
+.\build-tools\scripts\bootstrap-cache.ps1   # optional: pre-populate build-tools\cache
+.\build-tools\scripts\build-installer.ps1
 ```
 
 The default build performs a clean `npm ci`, `npm run build`, self-contained
 `dotnet publish -c Release -r win-x64`, downloads and verifies pinned runtimes
 (Node, Chromium, WebView2), verifies the Gyan "essentials" static FFmpeg 8.1.2
 archive against its pinned SHA-256 (the prebuilt binary provides the
-AMF/NVENC/QSV hardware encoders plus libx264/libx265; provenance and the
-corresponding-source offer live in `installer/cache/gyan-build-source`),
-installs Playwright Chromium into staging, runs package smoke tests, then calls
-Inno Setup 6. Use `-Lite` to omit bundled Chromium and verify rendering through
-the system Microsoft Edge (or Google Chrome fallback). Generated paths:
+AMF/NVENC/QSV hardware encoders plus libx264/libx265), installs Playwright
+Chromium into staging, runs package smoke tests, then calls Inno Setup 6. Use
+`-Lite` to omit bundled Chromium and verify rendering through the system
+Microsoft Edge (or Google Chrome fallback). Generated paths:
 
-- `installer/staging/` — unpacked standalone application tree for the latest build.
-- `installer/output/AMLL-Lyric-MV-Studio-<version>-x64-Setup.exe` — Full installer.
-- `installer/output/AMLL-Lyric-MV-Studio-<version>-x64-Lite-Setup.exe` — Lite installer.
-- `installer/cache/` — reusable verified downloads.
+- `build-tools/.tmp/staging/` — unpacked standalone application tree for the latest build.
+- `build-tools/output/AMLL-Lyric-MV-Studio-<version>-x64-Setup.exe` — Full installer.
+- `build-tools/output/AMLL-Lyric-MV-Studio-<version>-x64-Lite-Setup.exe` — Lite installer.
+- `build-tools/cache/` — reusable verified downloads.
+- `build-tools/tools/Inno Setup 6/` — workspace-local Inno Setup toolchain.
 
 Useful switches:
 
@@ -92,10 +96,10 @@ Run an independent package check with:
 
 ```powershell
 # Full: verifies the packaged Chromium path
-.\installer\verify-package.ps1 -PackageRoot .\installer\staging
+.\build-tools\scripts\verify-package.ps1 -PackageRoot .\build-tools\.tmp\staging
 
 # Lite: requires no runtime/browsers directory and exercises system discovery
-.\installer\verify-package.ps1 -PackageRoot .\installer\staging -SystemBrowser
+.\build-tools\scripts\verify-package.ps1 -PackageRoot .\build-tools\.tmp\staging -SystemBrowser
 ```
 
 The verifier copies staging to a random `%TEMP%` directory, strictly recomputes
@@ -106,11 +110,14 @@ browser, and makes a one-second 320x180 smoke render. It does not restore or
 compile against the working tree. `-SkipGui` and `-SkipRender` may be used only
 for targeted diagnosis; release builds use all checks.
 
-After both variants pass, `finalize-release.ps1` creates the source/release set
-once rather than repeating large source archives per variant. It refuses to
-finalize without an authenticated FFmpeg 8.1.2 upstream source and the complete
-FFmpeg source-offer bundle (`gyan-build-source`), which pins the distributed
-binary archive and every resolvable upstream library source hash-by-hash.
+After both variants pass, `finalize-release.ps1` assembles the final release
+set under `<repo>\release`. Since after v0.2.1 the release policy is
+**installers only**: the release set contains the Full and Lite Setup
+executables, their `.json` SHA256/signature sidecars, and a slim
+`release-manifest.json` with file hashes. Source archives and FFmpeg
+corresponding-source offer bundles are no longer attached to releases; the
+script refuses to finalize unless both verified installer variants exist in
+`build-tools\output`.
 
 ## Code signing
 
@@ -129,8 +136,8 @@ build.
 Read `NOTICE.txt`, `LICENSE.txt`, `COPYING.GPLv3.txt`, and
 `THIRD-PARTY-NOTICES.md`. AMLL is AGPL-3.0-only and the bundled FFmpeg is the
 Gyan "essentials" statically linked 8.1.2 GPL build (libx264/libx265 plus
-AMF/NVENC/QSV) whose corresponding-source offer
-(`ffmpeg-8.1.2-source-offer/`, pinning the binary archive and every resolvable
-upstream source) ships with the release. Do not distribute the binary installer
-without that bundle; do not describe the package as closed-source or
-unrestricted proprietary software.
+AMF/NVENC/QSV). Releases ship the installers only; the corresponding sources
+of FFmpeg and its enabled libraries remain available through the Gyan build
+page and the upstream projects, and by request through the contact channels
+published with the project (see `THIRD-PARTY-NOTICES.md`). Do not describe the
+package as closed-source or unrestricted proprietary software.

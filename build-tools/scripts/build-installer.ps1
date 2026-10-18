@@ -21,14 +21,17 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$InstallerRoot = $PSScriptRoot
-$ProjectRoot = Split-Path -Parent $InstallerRoot
-$StagingRoot = Join-Path $InstallerRoot 'staging'
+# Layout: this script lives in build-tools\scripts. build-tools holds every
+# build tool and cache (cache/, output/, .tmp/, tools/Inno Setup 6); the
+# repository root is its parent.
+$BuildToolsRoot = Split-Path -Parent $PSScriptRoot
+$ProjectRoot = Split-Path -Parent $BuildToolsRoot
+$CacheRoot = Join-Path $BuildToolsRoot 'cache'
+$OutputRoot = Join-Path $BuildToolsRoot 'output'
+$TempRoot = Join-Path $BuildToolsRoot '.tmp'
+$StagingRoot = Join-Path $TempRoot 'staging'
 $ContentRoot = Join-Path $StagingRoot 'runtime\content'
-$CacheRoot = Join-Path $InstallerRoot 'cache'
-$OutputRoot = Join-Path $InstallerRoot 'output'
-$TempRoot = Join-Path $InstallerRoot '.tmp'
-$VersionFile = Join-Path $InstallerRoot 'VERSION'
+$VersionFile = Join-Path $ProjectRoot 'installer\VERSION'
 
 # Pin every downloaded build input. Update THIRD-PARTY-NOTICES.md with these values.
 $NodeVersion = '24.16.0'
@@ -41,11 +44,9 @@ $FfmpegVersion = '8.1.2'
 # Gyan "essentials" static FFmpeg build: includes libx264/libx265 plus the
 # AMF/NVENC/QSV hardware encoders (the self-built v0.2.0 minimal build only
 # compiled x264 + NVENC, which made AMD AMF permanently unavailable).
-# Provenance/corresponding-source offer bundle: installer/cache/gyan-build-source.
 $FfmpegArchive = 'ffmpeg-8.1.2-essentials_build.zip'
 $FfmpegUrl = 'https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip'
 $FfmpegSha256 = 'DB580001CAA24AC104C8CB856CD113A87B0A443F7BDF47D8C12B1D740584A2EC'
-$FfmpegSourceBundleName = 'gyan-build-source'
 $ChromiumRevision = '1243'
 $ChromiumVersion = '153.0.8010.12'
 $ChromiumCacheArchive = "playwright-chromium-$ChromiumRevision-win64.zip"
@@ -229,6 +230,9 @@ process.stdout.write([...result].sort().join('\n'));
 
 function Find-Iscc {
     $candidates = [System.Collections.Generic.List[string]]::new()
+    # The workspace-local toolchain under build-tools\tools takes precedence so
+    # the build does not depend on machine-global installs.
+    $candidates.Add((Join-Path $BuildToolsRoot 'tools\Inno Setup 6\ISCC.exe'))
     if ($env:ISCC_PATH) { $candidates.Add($env:ISCC_PATH) }
     if (${env:ProgramFiles(x86)}) { $candidates.Add((Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe')) }
     if ($env:ProgramFiles) { $candidates.Add((Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')) }
@@ -282,7 +286,10 @@ function Install-InnoSetup {
     if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys B\.V\.') {
         throw "Inno Setup Authenticode verification failed: $($signature.Status)"
     }
-    & $installer /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER /NORESTART
+    # Install the toolchain inside build-tools\tools so the workspace stays
+    # self-contained; no machine-global default location is used.
+    $toolsDir = Join-Path $BuildToolsRoot 'tools\Inno Setup 6'
+    & $installer /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER /NORESTART "/DIR=$toolsDir"
     if ($LASTEXITCODE -ne 0) {
         throw "Inno Setup current-user installation failed with exit code $LASTEXITCODE. Run '$installer /CURRENTUSER' interactively; no system-wide install was attempted."
     }
@@ -419,13 +426,13 @@ foreach ($legalName in @('LICENSE')) {
 }
 
 # Keep the npm package layout used by render-mv.mjs and also expose a stable runtime path.
-Copy-Item -LiteralPath (Join-Path $InstallerRoot 'THIRD-PARTY-NOTICES.md') `
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'installer\THIRD-PARTY-NOTICES.md') `
     -Destination (Join-Path $StagingRoot 'THIRD-PARTY-NOTICES.md') -Force
-Copy-Item -LiteralPath (Join-Path $InstallerRoot 'LICENSE.txt') `
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'installer\LICENSE.txt') `
     -Destination (Join-Path $StagingRoot 'LICENSE.txt') -Force
-Copy-Item -LiteralPath (Join-Path $InstallerRoot 'NOTICE.txt') `
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'installer\NOTICE.txt') `
     -Destination (Join-Path $StagingRoot 'NOTICE.txt') -Force
-Copy-Item -LiteralPath (Join-Path $InstallerRoot 'COPYING.GPLv3.txt') `
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'installer\COPYING.GPLv3.txt') `
     -Destination (Join-Path $StagingRoot 'COPYING.GPLv3.txt') -Force
 [IO.File]::WriteAllText((Join-Path $StagingRoot 'VERSION'), "$Version`r`n", $utf8NoBom)
 $webViewDestination = Join-Path $StagingRoot 'runtime\webview2\MicrosoftEdgeWebview2Setup.exe'
@@ -508,7 +515,7 @@ if ($Lite) {
     & $tarPath -xf $chromiumCache -C $env:PLAYWRIGHT_BROWSERS_PATH
     if ($LASTEXITCODE -ne 0) { throw "Chromium cache extraction failed with exit code $LASTEXITCODE" }
 } elseif ($Offline) {
-    throw "Offline mode: missing cached Chromium archive $chromiumCache. Run once without -Offline to populate installer/cache."
+    throw "Offline mode: missing cached Chromium archive $chromiumCache. Run once without -Offline to populate build-tools/cache."
 } else {
     & $stagedNode $playwrightCli install chromium --no-shell
     if ($LASTEXITCODE -ne 0) { throw "Playwright Chromium install failed with exit code $LASTEXITCODE" }
@@ -533,7 +540,7 @@ $browserLicenseRoot = Join-Path $legalRoot 'browser'
 New-Item -ItemType Directory -Force -Path $browserLicenseRoot | Out-Null
 # Chrome for Testing provides only ABOUT -> chrome://credits, not a license text.
 # Ship the vendored official Chromium license from installer/legal.
-$chromiumLicenseSource = Join-Path $InstallerRoot 'legal\Chromium-LICENSE.txt'
+$chromiumLicenseSource = Join-Path $ProjectRoot 'installer\legal\Chromium-LICENSE.txt'
 if (-not (Test-Path -LiteralPath $chromiumLicenseSource -PathType Leaf)) {
     throw "Required Chromium license text missing: $chromiumLicenseSource"
 }
@@ -587,7 +594,7 @@ $manifest = [ordered]@{
         cacheArchive = if ($Lite) { $null } else { $ChromiumCacheArchive }
         cacheSha256 = if ($Lite) { $null } else { Get-Sha256 $chromiumCache }
     }
-    ffmpeg = [ordered]@{ version = $FfmpegVersion; actualVersion = $ffmpegActualVersion; archive = $FfmpegArchive; sha256 = $FfmpegSha256; sourceBundle = $FfmpegSourceBundleName; license = 'GPL-3.0 (FFmpeg GPL components; libx264 GPL-2.0-or-later; nv-codec-headers MIT)'; libx264 = $true }
+    ffmpeg = [ordered]@{ version = $FfmpegVersion; actualVersion = $ffmpegActualVersion; archive = $FfmpegArchive; sha256 = $FfmpegSha256; url = $FfmpegUrl; license = 'GPL-3.0 (FFmpeg GPL components; libx264 GPL-2.0-or-later; nv-codec-headers MIT)'; libx264 = $true }
     renderScripts = [ordered]@{ entry = 'runtime/content/scripts/render-mv.mjs'; library = 'runtime/content/scripts/render-lib.mjs' }
     fileSha256 = $runtimeFileHashes
     # Inline projection to ordered dicts: Windows PowerShell 5.1 ConvertTo-Json
@@ -616,7 +623,7 @@ $manifest | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $manifestPath -En
 
 if (-not $SkipVerify) {
     Write-Step 'Verifying standalone staging package'
-    $verifyScript = Join-Path $InstallerRoot 'verify-package.ps1'
+    $verifyScript = Join-Path $PSScriptRoot 'verify-package.ps1'
     $verifyArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $verifyScript, '-PackageRoot', $StagingRoot)
     if ($Lite) { $verifyArgs += '-SystemBrowser' }
     & powershell @verifyArgs
@@ -644,7 +651,7 @@ if (-not $SkipInstaller) {
     # verification runs; purge it so the compiled installer stays exactly the
     # set of files the manifest pinned.
     Remove-ForeignNodeModulesState
-    $isccArgs = @("/DMyAppVersion=$Version", (Join-Path $InstallerRoot 'AMLL-MV-Studio.iss'))
+    $isccArgs = @("/DMyAppVersion=$Version", (Join-Path $ProjectRoot 'installer\AMLL-MV-Studio.iss'))
     if ($Lite) { $isccArgs = @("/DMyAppFlavor=Lite") + $isccArgs }
     & $iscc @isccArgs
     if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }

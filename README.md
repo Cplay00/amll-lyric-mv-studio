@@ -196,32 +196,33 @@ LRC 只能表达逐行时间戳，播放时整行一起亮起；YRC / QRC / LYS 
 | Full | 内嵌固定版本 Chromium | 开箱即用、可复现渲染 | `AMLL-Lyric-MV-Studio-0.2.0-x64-Setup.exe` |
 | Lite | 使用系统 Edge，回退 Chrome | 更小下载体积 | `AMLL-Lyric-MV-Studio-0.2.0-x64-Lite-Setup.exe` |
 
-两种安装包都包含 GUI 所需的 WebView2 Evergreen bootstrapper、Node.js、固定 FFmpeg 8.1.2、许可证和包清单。发布时应同时提供安装包、SHA256/签名元数据、对应源码及发行说明；本仓库不会将生成的二进制视为源码的一部分。`@ffmpeg-installer/ffmpeg` 仅是源码开发依赖，不是 Windows 安装包运行时。
+两种安装包都包含 GUI 所需的 WebView2 Evergreen bootstrapper、Node.js、固定 FFmpeg 8.1.2、许可证和包清单。自 v0.2.1 之后发布策略为**仅提供安装包**：发布集包含 Full/Lite 安装包、各自的 `.json` SHA256/签名元数据和 `release-manifest.json` 哈希清单，不再随附源码归档与 FFmpeg 对应源码包（上游源码经 Gyan 构建页与项目公示渠道获取）。本仓库不会将生成的二进制视为源码的一部分。`@ffmpeg-installer/ffmpeg` 仅是源码开发依赖，不是 Windows 安装包运行时。
 
 ## 构建与验证
 
-发布版安装包由 [installer/build-installer.ps1](installer/build-installer.ps1) 分别组装 Full/Lite；两者都通过后，由 [installer/finalize-release.ps1](installer/finalize-release.ps1) 一次生成发布集和应用源码归档。构建步骤为：
+构建脚本、工具链与缓存集中在工作区 `build-tools\` 目录（`scripts\` 构建脚本、`cache\` 校验过的下载缓存、`tools\` 本地 Inno Setup、`output\` 产物、`.tmp\staging\` 打包暂存树）。发布版安装包由 [build-tools/scripts/build-installer.ps1](build-tools/scripts/build-installer.ps1) 分别组装 Full/Lite；两者都通过后，由 [build-tools/scripts/finalize-release.ps1](build-tools/scripts/finalize-release.ps1) 生成发布集。构建步骤为：
 干净 `npm ci` → 前端构建 → .NET 8 自包含发布 → 下载并校验固定版本运行时
-（Node 24 / 本地构建的静态 FFmpeg 8.1.2 / Chromium 153 / WebView2 bootstrapper）→ 隔离冒烟验证 → Inno Setup 打包。
+（Node 24 / Gyan essentials 静态 FFmpeg 8.1.2 / Chromium 153 / WebView2 bootstrapper）→ 隔离冒烟验证 → Inno Setup 打包。
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\installer\build-installer.ps1              # 完整版（内嵌 Chromium，约 260MB）
-.\installer\build-installer.ps1 -Lite        # 精简版（不含 Chromium，渲染调用系统 Edge/Chrome）
+.\build-tools\scripts\bootstrap-cache.ps1    # 可选：预重建 build-tools\cache
+.\build-tools\scripts\build-installer.ps1              # 完整版（内嵌 Chromium，约 260MB）
+.\build-tools\scripts\build-installer.ps1 -Lite        # 精简版（不含 Chromium，渲染调用系统 Edge/Chrome）
 ```
 
 两种变体共用同一源码：Lite 版省去约 180MB 的内嵌浏览器，渲染时自动回退到
 系统已安装的 Microsoft Edge 或 Google Chrome（GUI 预览始终使用系统 WebView2 运行时）。
-构建后可分别执行 `installer/verify-package.ps1`；Full 检查内嵌 Chromium，Lite 使用
+构建后可分别执行 `build-tools/scripts/verify-package.ps1`；Full 检查内嵌 Chromium，Lite 使用
 `-SystemBrowser` 确认系统浏览器发现。验证器还检查清单哈希、应用图标、Node/FFmpeg 版本、
 GUI 启动以及一秒钟隔离渲染。详见 [installer/README.md](installer/README.md)。
 
 ## 发布
 
-0.2.0 的 Windows x64 产物命名为 `AMLL-Lyric-MV-Studio-0.2.0-x64-Setup.exe` 和
-`AMLL-Lyric-MV-Studio-0.2.0-x64-Lite-Setup.exe`。发布前应分别构建和运行完整包验证，
-再附带生成的 `.json` SHA256/签名元数据、对应源码、许可证及发行说明；请勿将旧的
-`AMLL-MV-Studio-*` 产物误标为 0.2.0。`finalize-release.ps1` 在 Full/Lite 任一缺失、自建 FFmpeg 8.1.2 对应源码闭包（`amll-ffmpeg-build-source`，含 `build.sh`）哈希校验失败时拒绝准备 final release。
+Windows x64 产物命名为 `AMLL-Lyric-MV-Studio-<版本>-x64-Setup.exe` 和
+`AMLL-Lyric-MV-Studio-<版本>-x64-Lite-Setup.exe`。发布前应分别构建和运行完整包验证，
+再附带生成的 `.json` SHA256/签名元数据与发行说明；请勿将旧的
+`AMLL-MV-Studio-*` 产物误标为新版本。`finalize-release.ps1` 在 Full/Lite 任一缺失时拒绝准备发布集。
 
 ## 常见问题
 

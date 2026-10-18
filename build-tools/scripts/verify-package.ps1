@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$PackageRoot = (Join-Path $PSScriptRoot 'staging'),
+    [string]$PackageRoot = '',
     [switch]$SkipGui,
     [switch]$SkipRender,
     # Lite verification omits Chromium and requires a system Edge/Chrome render.
@@ -11,6 +11,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# Windows PowerShell 5.1 cannot use $PSScriptRoot in a parameter default;
+# resolve the workspace staging location here instead. This script lives in
+# build-tools\scripts, so staging is build-tools\.tmp\staging.
+if (-not $PackageRoot) {
+    $PackageRoot = Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) '.tmp') 'staging'
+}
 $PackageRoot = (Resolve-Path -LiteralPath $PackageRoot).Path
 $VerifyRoot = Join-Path $env:TEMP ("amll-package-verify-" + [Guid]::NewGuid().ToString('N'))
 $WorkRoot = Join-Path $VerifyRoot 'package'
@@ -253,7 +259,9 @@ try {
         throw 'Manifest hash missing: chromiumExe'
     }
 
-    $forbiddenRoot = [Regex]::Escape((Split-Path -Parent $PSScriptRoot))
+    # The repository root is two levels above build-tools\scripts. No packaged
+    # text file may reference this development tree.
+    $forbiddenRoot = [Regex]::Escape((Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
     $textFiles = Get-ChildItem -LiteralPath $WorkRoot -Recurse -File |
         Where-Object { $_.Extension -in @('.json', '.js', '.mjs', '.html', '.txt', '.md', '.xml', '.config') }
     foreach ($file in $textFiles) {

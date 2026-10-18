@@ -94,6 +94,16 @@ const heldTimeline = buildCfrTimeline(heldFrames, 10, 800, { startTimestampMs: 1
 assert.deepEqual(heldTimeline.selectedIndices.slice(0, 5), [0, 0, 0, 0, 0],
   "the entire 500 ms head must repeat the readiness baseline frame");
 assert.equal(heldTimeline.selectedIndices[5], 3, "the first post-head frame must begin at audio start");
+
+// 抖动测试：物理到达时间存在轻微波动时，就近匹配应消除无端抽帧与重复
+const jitterFrames = [
+  { index: 0, timestampMs: 1000 },
+  { index: 1, timestampMs: 1018 }, // 略晚于 16.67ms
+  { index: 2, timestampMs: 1032 }, // 略早于 33.33ms
+  { index: 3, timestampMs: 1051 }, // 略晚于 50.00ms
+];
+const smoothTimeline = buildCfrTimeline(jitterFrames, 60, 60, { startTimestampMs: 1000 });
+assert.deepEqual(smoothTimeline.selectedIndices, [0, 1, 2, 3]);
 assert.throws(() => holdFirstFrameUntil([], 1500), /至少一个捕获帧/);
 assert.match(formatConcatTimeline(timeline.selectedIndices, 10), /file 'f00000001\.jpg'\nduration 0\.100000000/);
 assert.equal(formatConcatTimeline(timeline.selectedIndices, 10).trim().split("\n").at(-1), "file 'f00000002.jpg'");
@@ -244,15 +254,15 @@ try {
 const developmentRoot = mkdtempSync(join(tmpdir(), "amll-development-runtime-test-"));
 try {
   const scriptPath = join(developmentRoot, "scripts", "render-mv.mjs");
-  const stagedFfmpeg = join(developmentRoot, "installer", "staging", "runtime", "ffmpeg", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+  const stagedFfmpeg = join(developmentRoot, "build-tools", ".tmp", "staging", "runtime", "ffmpeg", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
   mkdirSync(join(developmentRoot, "scripts"), { recursive: true });
-  mkdirSync(join(developmentRoot, "installer", "staging", "runtime", "ffmpeg"), { recursive: true });
+  mkdirSync(join(developmentRoot, "build-tools", ".tmp", "staging", "runtime", "ffmpeg"), { recursive: true });
   writeFileSync(scriptPath, "");
   writeFileSync(stagedFfmpeg, "");
   assert.equal(discoverDevelopmentFfmpeg(scriptPath), stagedFfmpeg);
   const tools = resolveRuntimeTools({ scriptPath, env: { FFMPEG_PATH: join(developmentRoot, "legacy-ffmpeg") } });
   assert.equal(tools.ffmpeg.path, stagedFfmpeg);
-  assert.equal(tools.ffmpeg.source, "开发布局 installer/staging/runtime/ffmpeg");
+  assert.equal(tools.ffmpeg.source, "开发布局 build-tools/.tmp/staging/runtime/ffmpeg");
 } finally {
   rmSync(developmentRoot, { recursive: true, force: true });
 }

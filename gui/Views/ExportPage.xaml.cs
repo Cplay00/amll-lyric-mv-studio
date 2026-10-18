@@ -718,11 +718,22 @@ public sealed partial class ExportPage : UserControl
                 ProgressDetailText.Text = LocalizationService.T("Export.ReadyDetail", args.TotalMs / 1000.0, args.LyricLines); break;
             case "capture":
                 SetStatus("Export.Capturing", "Export.StageCapture");
-                Progress.Value = Math.Clamp(args.Percent, 0, 99);
+                Progress.Value = Math.Clamp(Math.Round(args.Percent * 0.75), 0, 75);
                 ProgressDetailText.Text = LocalizationService.T("Export.CaptureDetail", args.Frames, args.ElapsedMs / 1000.0, args.TotalMs / 1000.0); break;
             case "encode":
                 SetStatus("Export.EncodingStage", "Export.StageEncode");
-                Progress.Value = 99; break;
+                Progress.Value = Math.Clamp(Math.Round(75 + args.Percent * 0.24), 75, 99);
+                if (args.TotalFrames > 0 && args.Frames > 0)
+                {
+                    ProgressDetailText.Text = LocalizationService.T("Export.EncodeDetailWithFrames",
+                        args.Percent, args.Frames, args.TotalFrames, args.ElapsedMs / 1000.0, args.TotalMs / 1000.0);
+                }
+                else
+                {
+                    ProgressDetailText.Text = LocalizationService.T("Export.EncodeDetail",
+                        args.Percent, args.ElapsedMs / 1000.0, args.TotalMs / 1000.0);
+                }
+                break;
             case "done":
                 Progress.Value = 100; _lastOutputPath = args.OutputPath;
                 SetStatus("Export.RenderDone", "Export.StageDone");

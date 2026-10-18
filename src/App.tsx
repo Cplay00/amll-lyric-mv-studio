@@ -834,12 +834,48 @@ export default function App() {
     const audio = audioRef.current;
     if (!audio) return;
     let frameId = 0;
+    let lastAudioTime = audio.currentTime;
+    let lastAnchorPerf = performance.now();
+
+    const onSeekedOrReset = () => {
+      lastAudioTime = audio.currentTime;
+      lastAnchorPerf = performance.now();
+    };
+
+    audio.addEventListener("seeked", onSeekedOrReset);
+    audio.addEventListener("seeking", onSeekedOrReset);
+    audio.addEventListener("play", onSeekedOrReset);
+    audio.addEventListener("playing", onSeekedOrReset);
+
     const tick = () => {
-      if (!audio.paused) setCurrentTime(Math.round(audio.currentTime * 1000));
+      if (!audio.paused) {
+        const now = performance.now();
+        const rawAudioSec = audio.currentTime;
+
+        // 检测底层 audio.currentTime 阶梯跃迁，重新对齐基准锚点
+        if (Math.abs(rawAudioSec - lastAudioTime) > 0.0001) {
+          lastAudioTime = rawAudioSec;
+          lastAnchorPerf = now;
+        }
+
+        // 阶梯间隔内通过高精度单调时钟连续平滑推进
+        const elapsedSinceAnchor = (now - lastAnchorPerf) / 1000;
+        const smoothSec = elapsedSinceAnchor < 0.25
+          ? lastAudioTime + elapsedSinceAnchor
+          : rawAudioSec;
+
+        setCurrentTime(Math.round(smoothSec * 1000));
+      }
       frameId = requestAnimationFrame(tick);
     };
     frameId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frameId);
+    return () => {
+      cancelAnimationFrame(frameId);
+      audio.removeEventListener("seeked", onSeekedOrReset);
+      audio.removeEventListener("seeking", onSeekedOrReset);
+      audio.removeEventListener("play", onSeekedOrReset);
+      audio.removeEventListener("playing", onSeekedOrReset);
+    };
   }, [track?.audioUrl]);
 
   useEffect(() => {
